@@ -71,11 +71,12 @@ pnpm-lock.yaml
 .agent/
 quest-guild-electron/output/
 
-.db
-.db-shm
-.db-wal
+# Local SQLite database files (exclude dev DB + WAL/SHM)
+*.db
+*.db-shm
+*.db-wal
+server/backups/
+quest-guild-electron/renderer/app/assets/
 
-server\quest-guild.db-wal
-server\quest-guild.db-shm
-server\quest-guild-backups.db
-server\quest-guild.db
+# Generated artifacts (keep .workbuddy/memory as project knowledge)
+.workbuddy/artifacts/

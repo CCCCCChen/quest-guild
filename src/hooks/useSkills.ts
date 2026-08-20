@@ -4,6 +4,7 @@ import { PRESET_SKILLS, PRESET_SKILL_POINTS } from '@/data/preset';
 import { playSound } from '@/lib/sound';
 import { store } from '@/lib/storage';
 import { skillsApi } from '@/api';
+import { syncState } from '@/api/sync/state';
 
 const SKILLS_KEY = '__quest_guild_skills';
 const SKILL_POINTS_KEY = '__quest_guild_skill_points';
@@ -169,6 +170,7 @@ export function useSkills() {
       setSkillsValue(next);
       setPointsValue(skillPoints - node.requiredSkillPoints);
       playSound('levelup');
+      syncState.markMetaDirty();
 
       skillsApi.unlock(id).catch(() => {});
       return true;
@@ -190,6 +192,7 @@ export function useSkills() {
       setSkillsValue(next);
       setPointsValue(skillPoints - enhanceCost);
       playSound('levelup');
+      syncState.markMetaDirty();
 
       skillsApi.enhance(id).catch(() => {});
       return true;
@@ -211,6 +214,7 @@ export function useSkills() {
   const addSkillPoints = useCallback(
     (amount: number) => {
       setPointsValue(skillPoints + amount);
+      syncState.markMetaDirty();
     },
     [skillPoints],
   );

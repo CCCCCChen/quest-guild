@@ -205,6 +205,7 @@ export default function FloatingWidget({ isWindowMode = false }: { isWindowMode?
       description: '',
       type: 'daily',
       difficulty: quickDifficulty,
+      importance: 'medium',
       estimatedMinutes: mins,
       tags: [],
     });
@@ -378,7 +379,7 @@ export default function FloatingWidget({ isWindowMode = false }: { isWindowMode?
 
               {/* 右侧：快速状态 */}
               <div className="flex items-center gap-2.5 pr-3 pl-2 border-l border-border/30 py-2">
-                <div className="flex items-center gap-1" title="法力水晶">
+                <div className="flex items-center gap-1" title="专注槽">
                   <Gem className="h-3.5 w-3.5 text-accent" />
                   <span className="text-[11px] tabular-nums text-accent font-medium">
                     {activeAttentionTasks.length}
@@ -699,7 +700,7 @@ export default function FloatingWidget({ isWindowMode = false }: { isWindowMode?
                 </span>
                 <span className="flex items-center gap-1">
                   <Gem className="h-3 w-3 text-accent" />
-                  法力 {activeAttentionTasks.length}/{settings.manaMax}
+                  专注槽 {activeAttentionTasks.length}/{settings.manaMax}
                 </span>
               </div>
             </div>

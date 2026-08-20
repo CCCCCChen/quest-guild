@@ -23,6 +23,20 @@ import { useSkills } from '@/hooks/useSkills';
 import { CHART_COLORS } from '@/lib/chart-colors';
 import { formatDuration } from '@/lib/utils';
 
+// 图表空状态遮罩：数据全 0 时显示提示，避免"一片空白"误以为坏掉
+function ChartEmptyOverlay({ text = '暂无数据，完成任务后将自动生成' }: { text?: string }) {
+  return (
+    <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 text-center px-4">
+      <p className="text-sm text-muted-foreground/70">{text}</p>
+      <p className="text-[11px] text-muted-foreground/40">开始完成任务或专注计时即可点亮图表</p>
+    </div>
+  );
+}
+
+function isAllZero(arr: number[]): boolean {
+  return arr.length > 0 && arr.every((v) => v === 0);
+}
+
 export default function StatsPage() {
   const {
     weeklyFocusMinutes,
@@ -33,6 +47,9 @@ export default function StatsPage() {
     dailyFocusMinutes,
     difficultyDistribution,
     completedTasks,
+    skillGrowthTimeline,
+    epicCompletedCount,
+    dailyCompletedCount,
   } = useStats();
 
   const { skills, skillPoints } = useSkills();
@@ -364,11 +381,14 @@ export default function StatsPage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <ReactECharts
-                option={barChartOption}
-                style={{ height: '280px' }}
-                opts={{ renderer: 'canvas' }}
-              />
+              <div className="relative">
+                <ReactECharts
+                  option={barChartOption}
+                  style={{ height: '280px' }}
+                  opts={{ renderer: 'canvas' }}
+                />
+                {isAllZero(dailyCompletedCounts.map((d) => d.count)) && <ChartEmptyOverlay />}
+              </div>
             </CardContent>
           </Card>
         </motion.div>
@@ -387,11 +407,14 @@ export default function StatsPage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <ReactECharts
-                option={pieChartOption}
-                style={{ height: '280px' }}
-                opts={{ renderer: 'canvas' }}
-              />
+              <div className="relative">
+                <ReactECharts
+                  option={pieChartOption}
+                  style={{ height: '280px' }}
+                  opts={{ renderer: 'canvas' }}
+                />
+                {isAllZero(Object.values(difficultyDistribution)) && <ChartEmptyOverlay text="暂无已完成任务" />}
+              </div>
             </CardContent>
           </Card>
         </motion.div>
@@ -414,11 +437,16 @@ export default function StatsPage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <ReactECharts
-                option={lineChartOption}
-                style={{ height: '280px' }}
-                opts={{ renderer: 'canvas' }}
-              />
+              <div className="relative">
+                <ReactECharts
+                  option={lineChartOption}
+                  style={{ height: '280px' }}
+                  opts={{ renderer: 'canvas' }}
+                />
+                {isAllZero(dailyFocusMinutes.map((d) => d.minutes)) && (
+                  <ChartEmptyOverlay text="近 7 天无专注记录" />
+                )}
+              </div>
             </CardContent>
           </Card>
         </motion.div>
@@ -480,6 +508,74 @@ export default function StatsPage() {
                     ))}
                   </div>
                 )}
+              </div>
+            </CardContent>
+          </Card>
+        </motion.div>
+      </div>
+
+      {/* 能力成长轨迹 + 完成概览 */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, delay: 0.5 }}
+          className="lg:col-span-2"
+        >
+          <Card className="border-border/60 bg-card/60 backdrop-blur-sm h-full">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base font-semibold flex items-center gap-2">
+                <Award className="h-4 w-4 text-primary" />
+                能力成长轨迹
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {skillGrowthTimeline.length === 0 ? (
+                <div className="text-center py-10 text-xs text-muted-foreground/60">
+                  尚未点亮任何能力，完成任务积累经验即可解锁
+                </div>
+              ) : (
+                <ol className="relative border-l border-border/40 ml-2 space-y-4">
+                  {skillGrowthTimeline.map((s) => (
+                    <li key={s.id} className="ml-4">
+                      <div className="absolute -left-[5px] mt-1.5 size-2.5 rounded-full bg-primary" />
+                      <p className="text-sm font-medium text-foreground">{s.name}</p>
+                      <p className="text-[11px] text-muted-foreground">
+                        {s.category} · {new Date(s.unlockedAt).toLocaleDateString()}
+                        {s.status === 'enhanced' && ' · 已强化'}
+                      </p>
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </CardContent>
+          </Card>
+        </motion.div>
+
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, delay: 0.55 }}
+        >
+          <Card className="border-border/60 bg-card/60 backdrop-blur-sm h-full">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base font-semibold flex items-center gap-2">
+                <Target className="h-4 w-4 text-accent" />
+                完成概览
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="grid grid-cols-2 gap-3">
+              <div className="rounded-lg border border-border/40 bg-secondary/30 p-3 text-center">
+                <p className="text-2xl font-bold text-primary tabular-nums">{epicCompletedCount}</p>
+                <p className="text-[11px] text-muted-foreground mt-0.5">史诗完成</p>
+              </div>
+              <div className="rounded-lg border border-border/40 bg-secondary/30 p-3 text-center">
+                <p className="text-2xl font-bold text-accent tabular-nums">{dailyCompletedCount}</p>
+                <p className="text-[11px] text-muted-foreground mt-0.5">每日完成</p>
+              </div>
+              <div className="col-span-2 rounded-lg border border-border/40 bg-secondary/30 p-3 text-center">
+                <p className="text-2xl font-bold text-success tabular-nums">{totalCompleted}</p>
+                <p className="text-[11px] text-muted-foreground mt-0.5">累计完成任务</p>
               </div>
             </CardContent>
           </Card>

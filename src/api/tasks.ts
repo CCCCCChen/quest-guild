@@ -1,15 +1,36 @@
-import api from './client';
-import type { IQuestTask, IActiveTrack, IFocusLog, TaskDifficulty, TaskType } from '@/types/quest';
+import type { IQuestTask, IActiveTrack, IFocusLog, TaskDifficulty, TaskImportance, TaskType } from '@/types/quest';
+import { genLocalId, readLocalList, readLocalScalar } from './local';
+import { callDecomposeLLM } from '@/lib/aiClient';
+import type { IAiSubtaskDraft } from '@/lib/aiDraft';
+
+const TASKS_KEY = '__quest_guild_tasks';
+const TRACK_KEY = '__quest_guild_active_track';
+const FOCUS_LOG_KEY = '__quest_guild_focus_log';
+
+/**
+ * 方案A：tasksApi 本地持久化适配器。
+ * useTasks 已是「先写本地缓存、HTTP 仅镜像」的乐观模式；这里镜像层直接指向
+ * 本地存储，写操作立即成功，读操作返回与 hooks 相同键位的数据（不覆盖缓存）。
+ */
+
+function readTrack(): IActiveTrack | null {
+  try {
+    const raw = readLocalScalar(TRACK_KEY);
+    if (raw) return JSON.parse(raw) as IActiveTrack;
+  } catch { /* ignore */ }
+  return null;
+}
 
 export const tasksApi = {
-  getAll: () => api.get<IQuestTask[]>('/tasks'),
+  getAll: async (): Promise<IQuestTask[]> => readLocalList<IQuestTask>(TASKS_KEY),
 
-  create: (data: {
+  create: async (data: {
     id?: string;
     name: string;
     description?: string;
     type: TaskType;
     difficulty: TaskDifficulty;
+    importance?: TaskImportance;
     estimatedMinutes: number;
     relatedSkillId?: string;
     goalId?: string;
@@ -19,37 +40,54 @@ export const tasksApi = {
     parentId?: string;
     stage?: number;
     tags?: string[];
-  }) => api.post<IQuestTask>('/tasks', data),
+  }): Promise<IQuestTask> =>
+    ({ ...data, id: data.id ?? genLocalId('t') }) as IQuestTask,
 
-  update: (id: string, patch: Partial<IQuestTask>) =>
-    api.patch<IQuestTask>(`/tasks/${id}`, patch),
+  update: async (id: string, patch: Partial<IQuestTask>): Promise<IQuestTask> =>
+    ({ id, ...patch }) as IQuestTask,
 
-  remove: (id: string) => api.delete<{ success: boolean }>(`/tasks/${id}`),
+  remove: async (_id: string): Promise<{ success: boolean }> => ({ success: true }),
 
-  complete: (id: string) => api.post<IQuestTask>(`/tasks/${id}/complete`),
+  complete: async (id: string): Promise<IQuestTask> => ({ id }) as IQuestTask,
 
-  addAttention: (id: string, maxAttention: number) =>
-    api.post<IQuestTask>(`/tasks/${id}/attention`, { maxAttention }),
+  addAttention: async (id: string, _maxAttention: number): Promise<IQuestTask> =>
+    ({ id }) as IQuestTask,
 
-  removeAttention: (id: string) =>
-    api.delete<{ success: boolean }>(`/tasks/${id}/attention`),
+  removeAttention: async (_id: string): Promise<{ success: boolean }> => ({ success: true }),
 
-  decompose: (data: { name: string; description?: string; difficulty?: string; type?: string; estimatedMinutes?: number }) =>
-    api.post<{ subtasks: Partial<IQuestTask>[] }>('/tasks/decompose', data),
+  // 方案A：浏览器端直接调用 OpenAI 兼容 LLM 生成子任务草稿（不写任务列表，先交草稿层）。
+  // 返回的 subtasks 由调用方存入 AI 草稿箱，用户确认后才正式加入任务。
+  decompose: async (data: {
+    name: string;
+    description?: string;
+    difficulty?: string;
+    type?: string;
+    estimatedMinutes?: number;
+  }): Promise<{ subtasks: Omit<IAiSubtaskDraft, 'id'>[] }> => {
+    const subtasks = await callDecomposeLLM({
+      name: data.name,
+      description: data.description,
+      difficulty: data.difficulty,
+      estimatedMinutes: data.estimatedMinutes,
+    });
+    return { subtasks };
+  },
 
-  getActiveTrack: () => api.get<IActiveTrack | null>('/active-track'),
+  getActiveTrack: async (): Promise<IActiveTrack | null> => readTrack(),
 
-  setActiveTrack: (taskId: string | null) =>
-    api.post<IActiveTrack | null>('/active-track', { taskId }),
+  setActiveTrack: async (_taskId: string | null): Promise<IActiveTrack | null> => readTrack(),
 
-  startTracking: () => api.post<{ ok: boolean }>('/active-track/start'),
+  startTracking: async (): Promise<{ ok: boolean }> => ({ ok: true }),
 
-  pauseTracking: () => api.post<{ ok: boolean }>('/active-track/pause'),
+  pauseTracking: async (): Promise<{ ok: boolean }> => ({ ok: true }),
 
-  getFocusLogs: () => api.get<IFocusLog[]>('/focus-logs'),
+  getFocusLogs: async (): Promise<IFocusLog[]> => readLocalList<IFocusLog>(FOCUS_LOG_KEY),
 
-  bootstrap: (data: { tasks?: IQuestTask[]; skills?: unknown[]; shopItems?: unknown[] }) =>
-    api.post<{ success: boolean }>('/bootstrap', data),
+  bootstrap: async (_data: {
+    tasks?: IQuestTask[];
+    skills?: unknown[];
+    shopItems?: unknown[];
+  }): Promise<{ success: boolean }> => ({ success: true }),
 };
 
 export default tasksApi;

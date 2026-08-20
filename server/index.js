@@ -4,6 +4,15 @@ const Database = require('better-sqlite3');
 const path = require('path');
 const fs = require('fs');
 const { decomposeTask } = require('./services/llm');
+const {
+  normalizeDifficulty,
+  normalizeImportance,
+  computeReputation,
+  computeSkillPoints,
+  PROFICIENCY_THRESHOLD,
+  getWeekStartISO,
+  awardWithWeeklySoftCap,
+} = require('./constants');
 
 // 加载 .env（不依赖额外包）
 const envPath = path.join(__dirname, '.env');
@@ -32,7 +41,16 @@ app.use(cors());
 app.use(express.json());
 
 // 数据库初始化
-const db = new Database(path.join(__dirname, 'quest-guild.db'));
+// Phase 5 asar 修复：打包后 __dirname 落在 app.asar（只读），db 必须写到可写目录。
+// Electron 主进程在打包模式下通过 QUEST_GUILD_USER_DATA 注入 app.getPath('userData')；
+// 开发模式不注入该变量，db 仍留在 __dirname（quest-guide/server），行为与历史一致。
+const DB_DIR = process.env.QUEST_GUILD_USER_DATA
+  ? path.join(process.env.QUEST_GUILD_USER_DATA, 'quest-guild')
+  : __dirname;
+if (!fs.existsSync(DB_DIR)) {
+  fs.mkdirSync(DB_DIR, { recursive: true });
+}
+const db = new Database(path.join(DB_DIR, 'quest-guild.db'));
 db.pragma('journal_mode = WAL');
 
 // ========== 建表 ==========
@@ -172,6 +190,10 @@ try {
 } catch (e) { /* ignore */ }
 
 try {
+  db.prepare("ALTER TABLE tasks ADD COLUMN importance TEXT DEFAULT 'medium'").run();
+} catch (e) { /* ignore */ }
+
+try {
   db.prepare('ALTER TABLE skills ADD COLUMN proficiencyLevel INTEGER DEFAULT 0').run();
 } catch (e) { /* ignore */ }
 try {
@@ -185,6 +207,7 @@ try {
 const initMeta = db.prepare('INSERT OR IGNORE INTO meta (key, value) VALUES (?, ?)');
 initMeta.run('skill_points', '3');
 initMeta.run('reputation', '100');
+initMeta.run('normal_proficiency', '0');
 initMeta.run('settings', JSON.stringify({
   manaMax: 5,
   resetTime: '06:00',
@@ -233,15 +256,18 @@ app.get('/api/tasks', (req, res) => {
 // 新增任务
 app.post('/api/tasks', (req, res) => {
   const data = req.body;
-  const rewardReputation = ({ easy: 5, normal: 10, hard: 25, epic: 80 })[data.difficulty] + Math.floor(data.estimatedMinutes / 10) * 2;
-  const rewardSkillPoints = ({ easy: 0, normal: 0, hard: 1, epic: 3 })[data.difficulty];
+  const difficulty = normalizeDifficulty(data.difficulty);
+  const importance = normalizeImportance(data.importance);
+  const rewardReputation = computeReputation({ difficulty, importance, minutes: data.estimatedMinutes });
+  const rewardSkillPoints = computeSkillPoints(difficulty);
 
   const newTask = {
     id: data.id || genId(data.type === 'epic' ? 'ep' : 'dy'),
     name: data.name,
     description: data.description || '',
     type: data.type,
-    difficulty: data.difficulty,
+    difficulty,
+    importance,
     estimatedMinutes: data.estimatedMinutes,
     actualMinutes: 0,
     relatedSkillId: data.relatedSkillId || null,
@@ -276,6 +302,7 @@ app.post('/api/tasks', (req, res) => {
 app.patch('/api/tasks/:id', (req, res) => {
   const { id } = req.params;
   const patch = req.body;
+  if (patch.difficulty !== undefined) patch.difficulty = normalizeDifficulty(patch.difficulty);
 
   const existing = db.prepare('SELECT * FROM tasks WHERE id = ?').get(id);
   if (!existing) return res.status(404).json({ error: '任务不存在' });
@@ -339,9 +366,22 @@ app.post('/api/tasks/:id/complete', (req, res) => {
 
   const actualMinutes = actualSeconds > 0 ? Math.round(actualSeconds / 60) : task.actualMinutes;
 
-  // 更新任务状态
-  db.prepare(`UPDATE tasks SET status = 'completed', isTracking = 0, isAttention = 0, actualMinutes = ?, bossProgress = ?, completedAt = ? WHERE id = ?`)
-    .run(actualMinutes, task.type === 'epic' ? 100 : task.bossProgress, Date.now(), id);
+  // Phase 4：按实际时长 + 重要性重算奖励（创建期值仅为预览）
+  const importance = normalizeImportance(task.importance);
+  const finalReputation = computeReputation({ difficulty: task.difficulty, importance, minutes: actualMinutes });
+  const finalSkillPoints = computeSkillPoints(task.difficulty);
+
+  // 防自灌：本周软上限（超出部分收益递减为 50%）
+  const weekStart = getWeekStartISO();
+  const weekRepRow = db.prepare(
+    "SELECT COALESCE(SUM(rewardReputation), 0) AS s FROM tasks WHERE status = 'completed' AND completedAt >= ? AND completedAt < ? AND id != ?"
+  ).get(weekStart, Date.now(), id);
+  const currentWeekRep = weekRepRow ? weekRepRow.s : 0;
+  const awardedReputation = awardWithWeeklySoftCap(currentWeekRep, finalReputation);
+
+  // 更新任务状态与重算后的奖励
+  db.prepare(`UPDATE tasks SET status = 'completed', isTracking = 0, isAttention = 0, actualMinutes = ?, bossProgress = ?, rewardReputation = ?, rewardSkillPoints = ?, completedAt = ? WHERE id = ?`)
+    .run(actualMinutes, task.type === 'epic' ? 100 : task.bossProgress, awardedReputation, finalSkillPoints, Date.now(), id);
 
   // 史诗任务：检查子任务进度
   if (task.parentId) {
@@ -358,16 +398,33 @@ app.post('/api/tasks/:id/complete', (req, res) => {
     }
   }
 
-  // 增加声望
+  // 增加声望（使用防自灌后的实际授予值）
   const repRow = db.prepare("SELECT value FROM meta WHERE key = 'reputation'").get();
   const currentRep = parseInt(repRow.value, 10);
-  db.prepare("UPDATE meta SET value = ? WHERE key = 'reputation'").run(String(currentRep + task.rewardReputation));
+  db.prepare("UPDATE meta SET value = ? WHERE key = 'reputation'").run(String(currentRep + awardedReputation));
 
   // 增加技能点
-  if (task.rewardSkillPoints > 0) {
+  if (finalSkillPoints > 0) {
     const spRow = db.prepare("SELECT value FROM meta WHERE key = 'skill_points'").get();
     const currentSp = parseInt(spRow.value, 10);
-    db.prepare("UPDATE meta SET value = ? WHERE key = 'skill_points'").run(String(currentSp + task.rewardSkillPoints));
+    db.prepare("UPDATE meta SET value = ? WHERE key = 'skill_points'").run(String(currentSp + finalSkillPoints));
+  }
+
+  // Phase 4：normal 熟练度进度，满阈值解锁下一个 locked 技能节点
+  if (task.difficulty === 'normal') {
+    const profRow = db.prepare("SELECT value FROM meta WHERE key = 'normal_proficiency'").get() || { value: '0' };
+    let prof = parseInt(profRow.value, 10) || 0;
+    prof += 1;
+    let unlockedNodeId = null;
+    if (prof >= PROFICIENCY_THRESHOLD) {
+      prof = prof - PROFICIENCY_THRESHOLD;
+      const node = db.prepare("SELECT * FROM skills WHERE status = 'locked' ORDER BY level ASC, requiredSkillPoints ASC, id ASC LIMIT 1").get();
+      if (node) {
+        db.prepare("UPDATE skills SET status = 'unlocked', unlockedAt = ? WHERE id = ?").run(Date.now(), node.id);
+        unlockedNodeId = node.id;
+      }
+    }
+    db.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES ('normal_proficiency', ?)").run(String(prof));
   }
 
   const result = db.prepare('SELECT * FROM tasks WHERE id = ?').get(id);
@@ -384,7 +441,7 @@ app.post('/api/tasks/decompose', async (req, res) => {
     const subtasks = await decomposeTask({
       name: name.trim(),
       description: description || '',
-      difficulty: difficulty || 'normal',
+      difficulty: normalizeDifficulty(difficulty),
       type: type || 'daily',
       estimatedMinutes,
     });

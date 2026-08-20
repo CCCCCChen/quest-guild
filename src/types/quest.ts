@@ -2,6 +2,7 @@
 
 export type TaskType = 'epic' | 'daily';
 export type TaskDifficulty = 'easy' | 'normal' | 'hard' | 'epic';
+export type TaskImportance = 'low' | 'medium' | 'high' | 'urgent';
 export type TaskStatus = 'pending' | 'active' | 'completed';
 export type SkillStatus = 'locked' | 'unlocked' | 'enhanced';
 export type GoalStatus = 'active' | 'archived';
@@ -13,6 +14,7 @@ export interface IQuestTask {
   description: string;
   type: TaskType;
   difficulty: TaskDifficulty;
+  importance?: TaskImportance;
   estimatedMinutes: number;
   actualMinutes: number;
   relatedSkillId?: string;
@@ -29,6 +31,7 @@ export interface IQuestTask {
   rewardReputation: number;
   rewardSkillPoints: number;
   createdAt: number;
+  updatedAt: number;
   completedAt?: number;
   source?: 'mock' | 'user';
   tags?: string[];
@@ -68,6 +71,8 @@ export interface IGoal {
   name: string;
   description: string;
   deadline?: number;
+  milestone?: string;
+  milestoneDeadline?: number;
   status: GoalStatus;
   createdAt: number;
   updatedAt: number;

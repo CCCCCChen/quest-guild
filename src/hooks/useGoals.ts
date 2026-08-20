@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { IGoal } from '@/types/quest';
 import { store, subscribeStorageChange } from '@/lib/storage';
 import { goalsApi } from '@/api';
+import { cascadeDeleteTasksByGoal } from '@/hooks/useTasks';
 
 const GOALS_KEY = '__quest_guild_goals';
 
@@ -59,7 +60,7 @@ export function useGoals() {
     };
   }, [goals]);
 
-  const addGoal = useCallback(async (payload: { name: string; description?: string; deadline?: number }) => {
+  const addGoal = useCallback(async (payload: Partial<IGoal> & { name: string }) => {
     const goal = await goalsApi.create(payload);
     const next = [goal, ...(goalsCache ?? loadGoals())];
     setGoalsValue(next);
@@ -75,6 +76,8 @@ export function useGoals() {
   }, []);
 
   const deleteGoal = useCallback(async (id: string) => {
+    // 级联删除目标下所有任务（含子树），并标记云端删除
+    cascadeDeleteTasksByGoal(id);
     await goalsApi.remove(id);
     const base = goalsCache ?? loadGoals();
     setGoalsValue(base.filter((g) => g.id !== id));

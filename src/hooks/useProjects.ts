@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { IProject } from '@/types/quest';
 import { store, subscribeStorageChange } from '@/lib/storage';
 import { projectsApi } from '@/api';
+import { cascadeDeleteTasksByProject } from '@/hooks/useTasks';
 
 const PROJECTS_KEY = '__quest_guild_projects';
 
@@ -82,6 +83,8 @@ export function useProjects() {
   }, []);
 
   const deleteProject = useCallback(async (id: string) => {
+    // 级联删除项目下所有任务（含子树），并标记云端删除
+    cascadeDeleteTasksByProject(id);
     await projectsApi.remove(id);
     const base = projectsCache ?? loadProjects();
     setProjectsValue(base.filter((p) => p.id !== id));

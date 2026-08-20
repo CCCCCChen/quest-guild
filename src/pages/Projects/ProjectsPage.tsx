@@ -110,6 +110,18 @@ export default function ProjectsPage() {
     return map;
   }, [tasks]);
 
+  // 每个项目的完成进度（优先按子任务计算，无子任务时回退到项目自带 progress）
+  const projectProgress = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const p of projects) {
+      const list = tasksByProject.get(p.id) || [];
+      const total = list.length;
+      const completed = list.filter((t) => t.status === 'completed').length;
+      m.set(p.id, total === 0 ? p.progress : Math.round((completed / total) * 100));
+    }
+    return m;
+  }, [projects, tasksByProject]);
+
   function resetForm(nextEditing: IProject | null) {
     setEditing(nextEditing);
     form.reset({
@@ -323,24 +335,9 @@ export default function ProjectsPage() {
               <div className="space-y-1">
                 <div className="flex items-center justify-between text-xs text-muted-foreground">
                   <span>进度</span>
-                  <span>
-                    {(() => {
-                      const list = tasksByProject.get(project.id) || [];
-                      const total = list.length;
-                      const completed = list.filter((t) => t.status === 'completed').length;
-                      const pct = total === 0 ? project.progress : Math.round((completed / total) * 100);
-                      return `${pct}%`;
-                    })()}
-                  </span>
+                  <span>{projectProgress.get(project.id) ?? project.progress}%</span>
                 </div>
-                <Progress
-                  value={(() => {
-                    const list = tasksByProject.get(project.id) || [];
-                    const total = list.length;
-                    const completed = list.filter((t) => t.status === 'completed').length;
-                    return total === 0 ? project.progress : Math.round((completed / total) * 100);
-                  })()}
-                />
+                <Progress value={projectProgress.get(project.id) ?? project.progress} />
               </div>
 
               <div className="space-y-2 pt-2">

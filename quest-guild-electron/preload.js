@@ -26,12 +26,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // 通用事件监听
   on: (channel, callback) => {
-    const allowedChannels = ['data:sync', 'data:storage-changed', 'float:auto-collapse'];
+    const allowedChannels = ['data:sync', 'data:storage-changed', 'float:auto-collapse', 'sync:flush-request'];
     if (!allowedChannels.includes(channel)) return;
     const handler = (_, data) => callback(data);
     ipcRenderer.on(channel, handler);
     return () => ipcRenderer.removeListener(channel, handler);
   },
+
+  // 同步完成回执（渲染进程推送云端后通知主进程可退出）
+  syncFlushDone: () => ipcRenderer.send('sync:flush-done'),
 
   // 数据同步监听（兼容旧代码）
   onDataSync: (callback) => {
@@ -43,11 +46,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     const handler = (_, data) => callback(data);
     ipcRenderer.on('data:storage-changed', handler);
     return () => ipcRenderer.removeListener('data:storage-changed', handler);
-  },
-
-  // API 代理：将渲染进程的 HTTP 请求通过主进程转发到本地后端
-  api: {
-    proxy: (method, path, body) => ipcRenderer.invoke('api:proxy', { method, path, body }),
   },
 });
 

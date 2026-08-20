@@ -5,6 +5,7 @@ import { PRESET_SHOP_ITEMS, INITIAL_REPUTATION } from '@/data/preset';
 import { playSound } from '@/lib/sound';
 import { store, subscribeStorageChange } from '@/lib/storage';
 import { shopApi } from '@/api';
+import { syncState } from '@/api/sync/state';
 
 const REPUTATION_KEY = '__quest_guild_reputation';
 const SHOP_ITEMS_KEY = '__quest_guild_shop_items';
@@ -148,6 +149,7 @@ export function useShop() {
     const next = Math.max(0, (reputationCache ?? 0) + amount);
     setReputationValue(next);
     shopApi.addReputation(amount).catch(() => {});
+    syncState.markMetaDirty();
     if (amount > 0) {
       toast.success(`获得 ${amount} 声望${reason ? ` · ${reason}` : ''}`, {
         description: '公会声望 +' + amount,
@@ -202,6 +204,7 @@ export function useShop() {
         return false;
       }
       setReputationValue(current - item.cost);
+      syncState.markMetaDirty();
       const redemption: IRedemption = {
         id: `red_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
         itemId: item.id,

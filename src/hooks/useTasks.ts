@@ -1,26 +1,43 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import type { IQuestTask, IActiveTrack, IFocusLog, TaskType, TaskDifficulty } from '@/types/quest';
+import type { IQuestTask, IActiveTrack, IFocusLog, TaskType, TaskDifficulty, TaskStatus, TaskImportance } from '@/types/quest';
 import { PRESET_TASKS, PRESET_FOCUS_LOGS } from '@/data/preset';
+import { SAMPLE_TASKS } from '@/data/sampleTasks';
 import { playSound } from '@/lib/sound';
+import { computeStreak, computeTodayReputation } from '@/lib/streak';
+import { computeReputation, computeSkillPoints } from '@/lib/economy';
 import { store, subscribeStorageChange } from '@/lib/storage';
 import { appLogger } from '@/lib/runtime';
 import { tasksApi } from '@/api';
 import { grantCapabilityExperience } from '@/hooks/useSkills';
+import { syncState } from '@/api/sync/state';
+import type { QgTaskSnapshot } from '@/api/sync/types';
 
 const STORAGE_KEY_TASKS = '__quest_guild_tasks';
 const STORAGE_KEY_TRACK = '__quest_guild_active_track';
 const STORAGE_KEY_FOCUS_LOG = '__quest_guild_focus_log';
 
+function normalizeTask(t: IQuestTask): IQuestTask {
+  // 保证 updatedAt 存在（老数据/旧预设可能没有），默认取 createdAt
+  if (!t.updatedAt) t.updatedAt = t.createdAt || Date.now();
+  return t;
+}
+
 function loadTasksFromCache(): IQuestTask[] {
+  const raw = store.getItem(STORAGE_KEY_TASKS);
+  if (raw === null) {
+    // 首次运行（存储键从未创建）：自动种入示例任务，避免冷启动空白
+    const seeded = SAMPLE_TASKS.map(normalizeTask);
+    saveTasksCache(seeded);
+    return seeded;
+  }
   try {
-    const raw = store.getItem(STORAGE_KEY_TASKS);
     if (raw) {
       const parsed = JSON.parse(raw) as IQuestTask[];
-      if (Array.isArray(parsed)) return parsed;
+      if (Array.isArray(parsed)) return parsed.map(normalizeTask);
     }
   } catch { /* ignore */ }
-  return PRESET_TASKS;
+  return PRESET_TASKS.map(normalizeTask);
 }
 
 function loadTrackFromCache(): IActiveTrack | null {
@@ -82,17 +99,134 @@ function ensureTimer() {
   }, 1000);
 }
 
-function calcReputation(difficulty: TaskDifficulty, estimatedMinutes: number): number {
-  const base = { easy: 5, normal: 10, hard: 25, epic: 80 }[difficulty];
-  return base + Math.floor(estimatedMinutes / 10) * 2;
-}
-
-function calcSkillPoints(difficulty: TaskDifficulty): number {
-  return { easy: 0, normal: 0, hard: 1, epic: 3 }[difficulty];
-}
-
 function genId(prefix = 't'): string {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
+}
+
+// 收集某任务的所有后代 id（含直接子与更深层子树）
+function collectDescendantIds(rootId: string): string[] {
+  const direct = tasksState.filter((t) => t.parentId === rootId).map((t) => t.id);
+  const out = [...direct];
+  for (const d of direct) out.push(...collectDescendantIds(d));
+  return out;
+}
+
+// 删除一个任务及其整棵子树：本地移除 + 标记云端删除（B+ 延迟同步）
+// 替代原 deleteTask 的「只删父 + 仅 mark 父 id」，修复子任务云端残留
+function deleteTaskTree(id: string): void {
+  const task = tasksState.find((t) => t.id === id);
+  const descendantIds = collectDescendantIds(id);
+  const removeIds = [id, ...descendantIds];
+  tasksState = tasksState.filter((t) => !removeIds.includes(t.id));
+  if (trackState && removeIds.includes(trackState.taskId)) {
+    trackState = null;
+    saveTrackCache(null);
+  }
+  saveTasksCache(tasksState);
+  notifyAll();
+  for (const rid of removeIds) {
+    tasksApi.remove(rid).catch(() => {/* 静默失败 */});
+    syncState.markTaskDeleted(rid);
+  }
+  toast.success(`任务「${task?.name || ''}」已移除`);
+}
+
+// 级联删除某项目下所有任务（及其子树），并标记云端删除
+export function cascadeDeleteTasksByProject(projectId: string): void {
+  for (const t of tasksState.filter((t) => t.projectId === projectId)) {
+    deleteTaskTree(t.id);
+  }
+}
+
+// 级联删除某目标下所有任务（及其子树），并标记云端删除
+export function cascadeDeleteTasksByGoal(goalId: string): void {
+  for (const t of tasksState.filter((t) => t.goalId === goalId)) {
+    deleteTaskTree(t.id);
+  }
+}
+
+// 双向同步：把云端返回的 qg 任务合并回本地（按 updatedAt 做 last-write-wins）
+// - 云端较新 → 采用云端同步字段（status/completed/name 等），保留本地独有字段（goalId/projectId/tags…）
+// - 本地较新 → 保留本地（下次同步会推上去）
+// - deletedIds → 云端已删，本地移除
+// - 云端独有 → 新增到本地
+export function mergeRemoteTasks(remoteTasks: QgTaskSnapshot[], deletedIds: string[]): void {
+  const remoteById = new Map(remoteTasks.map((t) => [t.id, t]));
+  const deletedSet = new Set(deletedIds);
+  const merged: IQuestTask[] = [];
+
+  for (const local of tasksState) {
+    if (deletedSet.has(local.id)) continue; // 云端已删
+    const remote = remoteById.get(local.id);
+    if (!remote) {
+      merged.push(local);
+      continue;
+    }
+    const remoteUpdated = Date.parse(remote.updatedAt);
+    if (remoteUpdated >= local.updatedAt) {
+      merged.push({
+        ...local,
+        name: remote.title,
+        description: remote.description || '',
+        type: remote.type === 'epic' ? 'epic' : 'daily',
+        difficulty: (remote.difficulty as TaskDifficulty) || local.difficulty,
+        status: (remote.status as TaskStatus) || local.status,
+        importance: (remote.importance as TaskImportance) || local.importance,
+        estimatedMinutes: remote.estimatedMinutes != null ? remote.estimatedMinutes : local.estimatedMinutes,
+        actualMinutes: remote.actualMinutes != null ? remote.actualMinutes : local.actualMinutes,
+        rewardReputation: remote.reputation,
+        rewardSkillPoints: remote.rewardSkillPoints,
+        parentId: remote.parentId ?? undefined,
+        stage: remote.stage ?? local.stage,
+        goalId: remote.goalId ?? local.goalId,
+        projectId: remote.projectId ?? local.projectId,
+        tags: remote.tags ?? local.tags,
+        completedAt: remote.completedDate ? Date.parse(remote.completedDate) : local.completedAt,
+        updatedAt: remoteUpdated,
+      });
+    } else {
+      merged.push(local);
+    }
+  }
+
+  // 云端独有任务
+  for (const remote of remoteTasks) {
+    if (deletedSet.has(remote.id)) continue;
+    if (merged.some((t) => t.id === remote.id)) continue;
+    const remoteUpdated = Date.parse(remote.updatedAt);
+    merged.push({
+      id: remote.id,
+      name: remote.title,
+      description: remote.description || '',
+      type: remote.type === 'epic' ? 'epic' : 'daily',
+      difficulty: (remote.difficulty as TaskDifficulty) || 'normal',
+      importance: (remote.importance as TaskImportance) || 'medium',
+      estimatedMinutes: remote.estimatedMinutes != null ? remote.estimatedMinutes : 0,
+      actualMinutes: remote.actualMinutes != null ? remote.actualMinutes : 0,
+      relatedSkillId: undefined,
+      goalId: remote.goalId ?? undefined,
+      projectId: remote.projectId ?? undefined,
+      capabilityIds: [],
+      bossName: undefined,
+      bossProgress: remote.status === 'completed' ? 100 : 0,
+      parentId: remote.parentId ?? undefined,
+      stage: remote.stage ?? 0,
+      status: (remote.status as TaskStatus) || 'pending',
+      isTracking: false,
+      isAttention: false,
+      rewardReputation: remote.reputation,
+      rewardSkillPoints: remote.rewardSkillPoints,
+      createdAt: Date.parse(remote.createdAt) || Date.now(),
+      updatedAt: remoteUpdated,
+      completedAt: remote.completedDate ? Date.parse(remote.completedDate) : undefined,
+      source: 'user',
+      tags: remote.tags ?? [],
+    });
+  }
+
+  tasksState = merged;
+  saveTasksCache(tasksState);
+  notifyAll();
 }
 
 // 从服务端拉取最新数据
@@ -133,7 +267,7 @@ subscribeStorageChange((event) => {
 });
 
 export function useTasks() {
-  const [, setTick] = useState(0);
+  const [tick, setTick] = useState(0);
 
   useEffect(() => {
     const fn = () => setTick((t) => t + 1);
@@ -154,7 +288,7 @@ export function useTasks() {
   const activeTrack = trackState;
   const focusLogs = focusLogsState;
 
-  // 计算当前追踪任务的实时秒数
+  // 计算当前追踪任务的实时秒数（依赖 tick 以每秒刷新）
   const currentTrackSeconds = useMemo(() => {
     if (!activeTrack) return 0;
     let secs = activeTrack.accumulatedSeconds;
@@ -162,7 +296,7 @@ export function useTasks() {
       secs += Math.floor((Date.now() - activeTrack.lastStartTime) / 1000);
     }
     return secs;
-  }, [activeTrack]);
+  }, [activeTrack, tick]);
 
   const trackingTask = useMemo(() => {
     if (!activeTrack) return null;
@@ -192,6 +326,12 @@ export function useTasks() {
     return minutes * 60 + (activeTrack?.isRunning ? currentTrackSeconds : 0);
   }, [focusLogs, activeTrack, currentTrackSeconds]);
 
+  // 连续完成天数（移植云端已验证算法）
+  const streak = useMemo(() => computeStreak(tasks), [tasks]);
+
+  // 今日声望：今天已完成任务累计奖励
+  const todayReputation = useMemo(() => computeTodayReputation(tasks), [tasks]);
+
   // ========== 操作 ==========
 
   const addTask = useCallback(
@@ -200,6 +340,7 @@ export function useTasks() {
       description?: string;
       type: TaskType;
       difficulty: TaskDifficulty;
+      importance?: TaskImportance;
       estimatedMinutes: number;
       relatedSkillId?: string;
       goalId?: string;
@@ -210,8 +351,8 @@ export function useTasks() {
       stage?: number;
       tags?: string[];
     }) => {
-      const rewardReputation = calcReputation(data.difficulty, data.estimatedMinutes);
-      const rewardSkillPoints = calcSkillPoints(data.difficulty);
+      const rewardReputation = computeReputation({ difficulty: data.difficulty, importance: data.importance, minutes: data.estimatedMinutes });
+      const rewardSkillPoints = computeSkillPoints(data.difficulty);
 
       // 计算 stage：传入时优先使用；否则每日悬赏为 0，史诗父任务为 1，史诗子任务编号递增
       let stage: number;
@@ -234,6 +375,7 @@ export function useTasks() {
         description: data.description || '',
         type: data.type,
         difficulty: data.difficulty,
+        importance: data.importance || 'medium',
         estimatedMinutes: data.estimatedMinutes,
         actualMinutes: 0,
         relatedSkillId: data.relatedSkillId,
@@ -250,6 +392,7 @@ export function useTasks() {
         rewardReputation,
         rewardSkillPoints,
         createdAt: Date.now(),
+        updatedAt: Date.now(),
         source: 'user',
         tags: data.tags || [],
       };
@@ -264,6 +407,9 @@ export function useTasks() {
         toast.error('任务同步失败', { description: String(e) });
       });
 
+      // Phase 2：标记待同步（B+ 延迟同步）
+      syncState.markTaskDirty(newTask.id);
+
       toast.success(`任务「${data.name}」已加入悬赏池`);
       return newTask;
     },
@@ -271,23 +417,31 @@ export function useTasks() {
   );
 
   const updateTask = useCallback((id: string, patch: Partial<IQuestTask>) => {
-    tasksState = tasksState.map((t) => (t.id === id ? { ...t, ...patch } : t));
+    tasksState = tasksState.map((t) => (t.id === id ? { ...t, ...patch, updatedAt: Date.now() } : t));
     saveTasksCache(tasksState);
     notifyAll();
     tasksApi.update(id, patch).catch(() => {/* 静默失败 */});
+    syncState.markTaskDirty(id);
   }, []);
 
   const deleteTask = useCallback((id: string) => {
-    const task = tasksState.find((t) => t.id === id);
-    tasksState = tasksState.filter((t) => t.id !== id && t.parentId !== id);
-    if (trackState?.taskId === id) {
-      trackState = null;
-      saveTrackCache(null);
+    deleteTaskTree(id);
+  }, []);
+
+  // 一键导入示例任务（评审提议的史诗 + 每日悬赏）。已存在 id 跳过，避免重复。
+  const importSampleTasks = useCallback(() => {
+    const existingIds = new Set(tasksState.map((t) => t.id));
+    const toAdd = SAMPLE_TASKS.filter((t) => !existingIds.has(t.id));
+    if (toAdd.length === 0) {
+      toast.info('示例任务已全部在库中');
+      return toAdd.length;
     }
+    tasksState = [...tasksState, ...toAdd];
     saveTasksCache(tasksState);
     notifyAll();
-    tasksApi.remove(id).catch(() => {/* 静默失败 */});
-    toast.success(`任务「${task?.name || ''}」已移除`);
+    toAdd.forEach((t) => syncState.markTaskDirty(t.id));
+    toast.success(`已导入 ${toAdd.length} 个示例任务（史诗 + 每日悬赏）`);
+    return toAdd.length;
   }, []);
 
   // 设为追踪任务
@@ -313,11 +467,11 @@ export function useTasks() {
 
       if (task.isAttention) {
         tasksState = tasksState.map((t) =>
-          t.id === taskId ? { ...t, isAttention: false, isTracking: true, status: 'active' } : t,
+          t.id === taskId ? { ...t, isAttention: false, isTracking: true, status: 'active', updatedAt: Date.now() } : t,
         );
       } else {
         tasksState = tasksState.map((t) =>
-          t.id === taskId ? { ...t, isTracking: true, status: 'active' } : t,
+          t.id === taskId ? { ...t, isTracking: true, status: 'active', updatedAt: Date.now() } : t,
         );
       }
 
@@ -334,6 +488,7 @@ export function useTasks() {
       saveTasksCache(tasksState);
       notifyAll();
       tasksApi.setActiveTrack(taskId).catch(() => {});
+      syncState.markTaskDirty(taskId);
       toast.success(`「${task.name}」已设为主线追踪任务`);
     },
     [],
@@ -373,15 +528,16 @@ export function useTasks() {
       }
       const currentCount = tasksState.filter((t) => t.isAttention && t.status !== 'completed').length;
       if (currentCount >= maxAttention) {
-        toast.error(`法力水晶不足！最多激活 ${maxAttention} 个注意力任务`);
+        toast.error(`专注槽已满！最多激活 ${maxAttention} 个注意力任务`);
         return false;
       }
       tasksState = tasksState.map((t) =>
-        t.id === taskId ? { ...t, isAttention: true, status: 'active' } : t,
+        t.id === taskId ? { ...t, isAttention: true, status: 'active', updatedAt: Date.now() } : t,
       );
       saveTasksCache(tasksState);
       notifyAll();
       tasksApi.addAttention(taskId, maxAttention).catch(() => {});
+      syncState.markTaskDirty(taskId);
       toast.success(`「${task.name}」已加入注意力任务`);
       return true;
     },
@@ -390,11 +546,12 @@ export function useTasks() {
 
   const removeAttentionTask = useCallback((taskId: string) => {
     tasksState = tasksState.map((t) =>
-      t.id === taskId ? { ...t, isAttention: false } : t,
+      t.id === taskId ? { ...t, isAttention: false, updatedAt: Date.now() } : t,
     );
     saveTasksCache(tasksState);
     notifyAll();
     tasksApi.removeAttention(taskId).catch(() => {});
+    syncState.markTaskDirty(taskId);
   }, []);
 
   // 完成任务
@@ -424,6 +581,10 @@ export function useTasks() {
 
       const actualMinutes = actualSeconds > 0 ? Math.round(actualSeconds / 60) : task.actualMinutes;
 
+      // Phase 4：按实际时长 + 重要性重算奖励（与 server 一致）
+      const finalReputation = computeReputation({ difficulty: task.difficulty, importance: task.importance, minutes: actualMinutes });
+      const finalSkillPoints = computeSkillPoints(task.difficulty);
+
       tasksState = tasksState.map((t) =>
         t.id === taskId
           ? {
@@ -432,13 +593,33 @@ export function useTasks() {
               isTracking: false,
               isAttention: false,
               actualMinutes,
+              rewardReputation: finalReputation,
+              rewardSkillPoints: finalSkillPoints,
               bossProgress: t.type === 'epic' ? 100 : t.bossProgress,
               completedAt: Date.now(),
+              updatedAt: Date.now(),
             }
           : t,
       );
 
       playSound(task.difficulty === 'epic' ? 'levelup' : 'complete');
+
+      // 派发全局庆祝事件（CelebrationLayer 监听），与声音解耦
+      try {
+        window.dispatchEvent(
+          new CustomEvent('quest:celebrate', {
+            detail: {
+              taskName: task.name,
+              difficulty: task.difficulty,
+              reputation: finalReputation,
+              skillPoints: finalSkillPoints,
+              skillId: task.relatedSkillId,
+            },
+          }),
+        );
+      } catch {
+        /* 事件派发失败不影响完成主流程 */
+      }
 
       // 史诗任务：检查子任务
       if (task.parentId) {
@@ -447,7 +628,7 @@ export function useTasks() {
         if (allDone) {
           tasksState = tasksState.map((t) =>
             t.id === task.parentId
-              ? { ...t, status: 'completed', bossProgress: 100, completedAt: Date.now() }
+              ? { ...t, status: 'completed', bossProgress: 100, completedAt: Date.now(), updatedAt: Date.now() }
               : t,
           );
         } else {
@@ -455,7 +636,7 @@ export function useTasks() {
           const done = siblings.filter((t) => t.status === 'completed').length + 1;
           const progress = Math.round((done / total) * 100);
           tasksState = tasksState.map((t) =>
-            t.id === task.parentId ? { ...t, bossProgress: progress } : t,
+            t.id === task.parentId ? { ...t, bossProgress: progress, updatedAt: Date.now() } : t,
           );
         }
       }
@@ -465,16 +646,20 @@ export function useTasks() {
 
       tasksApi.complete(taskId).catch(() => {});
 
+      // Phase 2：任务完成 → 任务状态 + 声望/能力点均变更，标记脏
+      syncState.markTaskDirty(taskId);
+      syncState.markMetaDirty();
+
       if (task.relatedSkillId) {
         const minutes = actualMinutes > 0 ? actualMinutes : task.estimatedMinutes;
         grantCapabilityExperience(task.relatedSkillId, minutes);
       }
 
-      toast.success(`🎉 任务完成！获得 ${task.rewardReputation} 声望${task.rewardSkillPoints > 0 ? ` + ${task.rewardSkillPoints} 能力点` : ''}`);
+      toast.success(`🎉 任务完成！获得 ${finalReputation} 声望${finalSkillPoints > 0 ? ` + ${finalSkillPoints} 能力点` : ''}`);
 
       return {
-        reputation: task.rewardReputation,
-        skillPoints: task.rewardSkillPoints,
+        reputation: finalReputation,
+        skillPoints: finalSkillPoints,
         skillId: task.relatedSkillId,
       };
     },
@@ -484,11 +669,12 @@ export function useTasks() {
   // 更新 Boss 进度
   const updateBossProgress = useCallback((taskId: string, progress: number) => {
     tasksState = tasksState.map((t) =>
-      t.id === taskId ? { ...t, bossProgress: Math.max(0, Math.min(100, progress)) } : t,
+      t.id === taskId ? { ...t, bossProgress: Math.max(0, Math.min(100, progress)), updatedAt: Date.now() } : t,
     );
     saveTasksCache(tasksState);
     notifyAll();
     tasksApi.update(taskId, { bossProgress: Math.max(0, Math.min(100, progress)) }).catch(() => {});
+    syncState.markTaskDirty(taskId);
   }, []);
 
   // 获取子任务
@@ -507,9 +693,12 @@ export function useTasks() {
     dailyTasks,
     currentTrackSeconds,
     focusTodaySeconds,
+    streak,
+    todayReputation,
     addTask,
     updateTask,
     deleteTask,
+    importSampleTasks,
     setTrackingTask,
     startTracking,
     pauseTracking,

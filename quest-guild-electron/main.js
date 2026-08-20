@@ -1,8 +1,5 @@
 const { app, BrowserWindow, Tray, Menu, ipcMain, screen, nativeImage } = require('electron');
 const path = require('path');
-const http = require('http');
-const net = require('net');
-const { spawn } = require('child_process');
 const fs = require('fs');
 const Store = require('electron-store');
 const log = require('electron-log');
@@ -25,6 +22,7 @@ let mainWindow = null;
 let floatWindow = null;
 let tray = null;
 let isQuitting = false;
+let pendingQuit = false; // Phase 2 before-quit flush：已收到 flush 回执，放行退出
 let floatResizeAnimation = null;
 
 // 应用配置
@@ -42,68 +40,9 @@ const APP_CONFIG = {
 
 const isDev = !app.isPackaged;
 log.transports.console.level = isDev ? 'debug' : false;
-let serverPort = Number(process.env.PORT || 3001);
-let serverProcess = null;
 
 if (process.env.NODE_ENV === 'development' || !app.isPackaged) {
   app.commandLine.appendSwitch('ignore-certificate-errors');
-}
-
-function checkPortAvailable(port) {
-  return new Promise((resolve) => {
-    const tester = net.createServer();
-    tester.once('error', () => resolve(false));
-    tester.once('listening', () => {
-      tester.close(() => resolve(true));
-    });
-    tester.listen(port, '127.0.0.1');
-  });
-}
-
-async function findAvailablePort(preferredPort) {
-  for (let p = preferredPort; p < preferredPort + 30; p += 1) {
-    const ok = await checkPortAvailable(p);
-    if (ok) return p;
-  }
-  return preferredPort;
-}
-
-async function ensureLocalServer() {
-  const entryInsideApp = path.join(__dirname, 'server', 'index.js');
-  const entryDev = path.join(__dirname, '..', 'server', 'index.js');
-  const serverEntry = fs.existsSync(entryInsideApp) ? entryInsideApp : entryDev;
-
-  const preferred = Number(process.env.QUEST_GUILD_SERVER_PORT || 3001);
-  const freePort = await findAvailablePort(preferred);
-  serverPort = freePort;
-  log.info(`[Server] 使用端口 ${freePort}`);
-
-  if (serverProcess && !serverProcess.killed) {
-    return;
-  }
-
-  serverProcess = spawn(process.execPath, [serverEntry], {
-    stdio: 'ignore',
-    env: {
-      ...process.env,
-      PORT: String(serverPort),
-      ELECTRON_RUN_AS_NODE: '1',
-    },
-    windowsHide: true,
-  });
-
-  serverProcess.on('exit', () => {
-    serverProcess = null;
-  });
-}
-
-function stopLocalServer() {
-  if (serverProcess && !serverProcess.killed) {
-    try {
-      serverProcess.kill();
-    } catch {}
-  }
-  serverProcess = null;
 }
 
 // 创建主窗口
@@ -484,33 +423,10 @@ ipcMain.handle('app:quit', () => {
   app.quit();
   return true;
 });
-// IPC 通信 - API 代理转发到本地后端
-ipcMain.handle('api:proxy', async (_, { method, path, body }) => {
-  return new Promise((resolve) => {
-    const req = http.request({
-      hostname: 'localhost',
-      port: serverPort,
-      path: '/api' + path,
-      method: method || 'GET',
-      headers: { 'Content-Type': 'application/json' },
-    }, (res) => {
-      let data = '';
-      res.on('data', (chunk) => { data += chunk; });
-      res.on('end', () => {
-        try { resolve({ status: res.statusCode, body: JSON.parse(data) }); }
-        catch { resolve({ status: res.statusCode, body: data }); }
-      });
-    });
-    req.on('error', (err) => resolve({ status: 0, error: err.message }));
-    if (body) req.write(JSON.stringify(body));
-    req.end();
-  });
-});
 
 // 应用就绪
 app.whenReady().then(() => {
   log.info(`[App] 启动 (isDev=${isDev}, electron=${process.versions.electron}, node=${process.versions.node})`);
-  ensureLocalServer().catch(() => {});
   createMainWindow();
   createTray();
 
@@ -531,10 +447,35 @@ app.on('window-all-closed', () => {
   }
 });
 
-app.on('before-quit', () => {
+app.on('before-quit', (e) => {
   log.info('[App] 退出中...');
+  if (pendingQuit) return; // 已完成 flush，允许退出
+  e.preventDefault(); // 先拦截，等同步 flush 完成再真正退出
   isQuitting = true;
-  stopLocalServer();
+
+  const win = mainWindow;
+  if (win && !win.isDestroyed() && win.webContents) {
+    let finished = false;
+    const finish = () => {
+      if (finished) return;
+      finished = true;
+      pendingQuit = true;
+      app.quit(); // 重新触发 before-quit（pendingQuit 已置位，直接放行）
+    };
+
+    // 渲染进程把本地变更推送到云端后回 'sync:flush-done'；最多等待 4s 避免卡死
+    ipcMain.once('sync:flush-done', finish);
+    try {
+      win.webContents.send('sync:flush-request');
+    } catch (err) {
+      log.error('[App] 发送 sync:flush-request 失败', String(err));
+      finish();
+    }
+    setTimeout(finish, 4000);
+  } else {
+    pendingQuit = true;
+    app.quit();
+  }
 });
 
 process.on('uncaughtException', (err) => {

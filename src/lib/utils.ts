@@ -16,7 +16,8 @@ export function formatDuration(totalSeconds: number): string {
   return `${pad(minutes)}:${pad(seconds)}`;
 }
 
-export function formatDate(timestamp: number): string {
+export function formatDate(timestamp?: number): string {
+  if (!timestamp) return '';
   const date = new Date(timestamp);
   const y = date.getFullYear();
   const m = (date.getMonth() + 1).toString().padStart(2, '0');
@@ -24,7 +25,8 @@ export function formatDate(timestamp: number): string {
   return `${y}-${m}-${d}`;
 }
 
-export function formatDateTime(timestamp: number): string {
+export function formatDateTime(timestamp?: number): string {
+  if (!timestamp) return '';
   const date = new Date(timestamp);
   const y = date.getFullYear();
   const m = (date.getMonth() + 1).toString().padStart(2, '0');

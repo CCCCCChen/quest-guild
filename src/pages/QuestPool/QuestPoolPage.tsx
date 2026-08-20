@@ -20,6 +20,8 @@ import {
   Target,
   Sparkles,
   ArrowDown,
+  RefreshCw,
+  FileSpreadsheet,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -65,13 +67,24 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useTasks } from '@/hooks/useTasks';
+import { useAiDrafts } from '@/hooks/useAiDrafts';
 import { tasksApi } from '@/api/tasks';
 import { useSkills } from '@/hooks/useSkills';
 import { useGoals } from '@/hooks/useGoals';
 import { useProjects } from '@/hooks/useProjects';
 import { useShop } from '@/hooks/useShop';
 import { useSettings } from '@/hooks/useSettings';
-import type { IQuestTask, TaskDifficulty, TaskType } from '@/types/quest';
+import {
+  Sheet,
+  SheetTrigger,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+  SheetFooter,
+} from '@/components/ui/sheet';
+import type { IQuestTask, TaskDifficulty, TaskImportance, TaskType } from '@/types/quest';
+import type { IAiDraft, IAiSubtaskDraft } from '@/lib/aiDraft';
 import { cn } from '@/lib/utils';
 
 const DIFFICULTY_LABELS: Record<TaskDifficulty, string> = {
@@ -88,11 +101,26 @@ const DIFFICULTY_COLORS: Record<TaskDifficulty, string> = {
   epic: 'bg-accent/15 text-accent border-accent/30',
 };
 
+const IMPORTANCE_LABELS: Record<TaskImportance, string> = {
+  low: '低',
+  medium: '中',
+  high: '高',
+  urgent: '紧急',
+};
+
+const IMPORTANCE_COLORS: Record<TaskImportance, string> = {
+  low: 'bg-muted/40 text-muted-foreground border-border',
+  medium: 'bg-info/15 text-info border-info/30',
+  high: 'bg-warning/15 text-warning border-warning/30',
+  urgent: 'bg-destructive/15 text-destructive border-destructive/30',
+};
+
 const formSchema = z.object({
   name: z.string().min(1, '请输入任务名称').max(50, '名称过长'),
   description: z.string().max(200, '描述过长').optional(),
   type: z.enum(['epic', 'daily'] as const),
   difficulty: z.enum(['easy', 'normal', 'hard', 'epic'] as const),
+  importance: z.enum(['low', 'medium', 'high', 'urgent'] as const),
   estimatedMinutes: z.number().int().min(5, '至少 5 分钟').max(9999, '数值过大'),
   relatedSkillId: z.string().optional(),
   goalId: z.string().optional(),
@@ -114,12 +142,15 @@ export default function QuestPoolPage() {
     addAttentionTask,
     trackingTask,
     activeAttentionTasks,
+    importSampleTasks,
   } = useTasks();
   const { skills, addSkillPoints } = useSkills();
   const { goals } = useGoals();
   const { projects } = useProjects();
   const { addReputation } = useShop();
   const { settings } = useSettings();
+  const { drafts: allDrafts, removeDraft: removeDraftGlobal, clearAll: clearAllDrafts } =
+    useAiDrafts();
 
   const [activeTab, setActiveTab] = useState<'epic' | 'daily'>('epic');
   const [searchKeyword, setSearchKeyword] = useState('');
@@ -137,6 +168,7 @@ export default function QuestPoolPage() {
       description: '',
       type: 'daily',
       difficulty: 'normal',
+      importance: 'medium',
       estimatedMinutes: 30,
       relatedSkillId: '',
       goalId: '',
@@ -201,6 +233,7 @@ export default function QuestPoolPage() {
       description: '',
       type: activeTab,
       difficulty: 'normal',
+      importance: 'medium',
       estimatedMinutes: 30,
       relatedSkillId: '',
       goalId: '',
@@ -218,6 +251,7 @@ export default function QuestPoolPage() {
       description: task.description,
       type: task.type,
       difficulty: task.difficulty,
+      importance: task.importance || 'medium',
       estimatedMinutes: task.estimatedMinutes,
       relatedSkillId: task.relatedSkillId || '',
       goalId: task.goalId || '',
@@ -236,6 +270,7 @@ export default function QuestPoolPage() {
         description: values.description || '',
         type: values.type,
         difficulty: values.difficulty,
+        importance: values.importance || 'medium',
         estimatedMinutes: values.estimatedMinutes,
         relatedSkillId: values.relatedSkillId || undefined,
         goalId: values.goalId || undefined,
@@ -251,6 +286,7 @@ export default function QuestPoolPage() {
         description: values.description || '',
         type: values.type,
         difficulty: values.difficulty,
+        importance: values.importance || 'medium',
         estimatedMinutes: values.estimatedMinutes,
         relatedSkillId: values.relatedSkillId || undefined,
         goalId: values.goalId || undefined,
@@ -278,7 +314,7 @@ export default function QuestPoolPage() {
 
   const handleAddAttention = (task: IQuestTask) => {
     if (activeAttentionTasks.length >= settings.manaMax) {
-      toast.error('法力水晶不足，无法激活更多注意力任务');
+      toast.error('专注槽已满，无法激活更多注意力任务');
       return;
     }
     addAttentionTask(task.id, settings.manaMax);
@@ -359,6 +395,92 @@ export default function QuestPoolPage() {
           <Plus className="h-4 w-4" />
           发布新悬赏
         </Button>
+        <Button variant="outline" onClick={() => importSampleTasks()} className="gap-2">
+          <Sparkles className="h-4 w-4" />
+          导入示例任务
+        </Button>
+        <Sheet>
+          <SheetTrigger asChild>
+            <Button variant="outline" className="gap-2" disabled={allDrafts.length === 0}>
+              <FileSpreadsheet className="h-4 w-4" />
+              AI 草稿箱
+              {allDrafts.length > 0 && (
+                <Badge variant="outline" className="ml-0.5 border-primary/40 text-primary">
+                  {allDrafts.length}
+                </Badge>
+              )}
+            </Button>
+          </SheetTrigger>
+          <SheetContent side="right" className="w-full sm:max-w-md">
+            <SheetHeader>
+              <SheetTitle className="flex items-center gap-2">
+                <Sparkles className="h-5 w-5 text-primary" />
+                AI 草稿箱
+              </SheetTitle>
+              <SheetDescription>
+                未确认的 AI 拆解为本地草稿，不会同步到云端；确认加入后才进入任务列表。
+              </SheetDescription>
+            </SheetHeader>
+            <div className="flex-1 overflow-y-auto space-y-2 pr-1">
+              {allDrafts.length === 0 ? (
+                <div className="text-center text-xs text-muted-foreground py-12">
+                  暂无草稿。在史诗任务展开区点「AI 拆解」即可生成。
+                </div>
+              ) : (
+                allDrafts.map((d) => (
+                  <div
+                    key={d.id}
+                    className="rounded-md border border-border/40 bg-secondary/20 p-3"
+                  >
+                    <div className="flex items-center justify-between gap-2 mb-1">
+                      <span className="text-sm font-medium truncate">{d.parentTaskName}</span>
+                      <Badge variant="outline" className="text-[10px] shrink-0">
+                        {d.subtasks.length} 条
+                      </Badge>
+                    </div>
+                    <div className="text-[10px] text-muted-foreground mb-2 line-clamp-2">
+                      {d.subtasks.map((s) => s.name).join(' · ')}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        className="h-7 text-[11px] flex-1"
+                        onClick={() => {
+                          setExpandedEpics((prev) => new Set(prev).add(d.parentTaskId));
+                          setTimeout(
+                            () =>
+                              document
+                                .getElementById(d.parentTaskId)
+                                ?.scrollIntoView({ behavior: 'smooth', block: 'center' }),
+                            150,
+                          );
+                        }}
+                      >
+                        去处理
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 text-[11px] text-destructive"
+                        onClick={() => removeDraftGlobal(d.id)}
+                      >
+                        丢弃
+                      </Button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+            {allDrafts.length > 0 && (
+              <SheetFooter>
+                <Button variant="destructive" className="w-full" onClick={clearAllDrafts}>
+                  清空全部草稿
+                </Button>
+              </SheetFooter>
+            )}
+          </SheetContent>
+        </Sheet>
       </div>
 
       <Card className="border-border/60 bg-card/50 backdrop-blur">
@@ -595,6 +717,34 @@ export default function QuestPoolPage() {
                           <SelectItem value="normal">普通</SelectItem>
                           <SelectItem value="hard">困难</SelectItem>
                           <SelectItem value="epic">史诗</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="importance"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>重要性</FormLabel>
+                      <Select
+                        onValueChange={field.onChange}
+                        defaultValue={field.value}
+                        value={field.value}
+                      >
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="low">低</SelectItem>
+                          <SelectItem value="medium">中</SelectItem>
+                          <SelectItem value="high">高</SelectItem>
+                          <SelectItem value="urgent">紧急</SelectItem>
                         </SelectContent>
                       </Select>
                       <FormMessage />
@@ -843,6 +993,8 @@ function EpicTaskNode({
   attentionCount,
 }: EpicTaskNodeProps) {
   const { addTask } = useTasks();
+  const { drafts, saveDraft, removeSubtask, updateSubtask, removeDraft } = useAiDrafts();
+  const draft = drafts.find((d) => d.parentTaskId === task.id) ?? null;
   const children = getChildren(task.id);
   const completedChildren = children.filter((c) => c.status === 'completed').length;
   const progress =
@@ -852,6 +1004,7 @@ function EpicTaskNode({
 
   const [decomposeLoading, setDecomposeLoading] = useState(false);
 
+  // AI 拆解：调用 LLM 生成子任务草稿，写入草稿箱（不直接进任务列表/不同步）
   const handleDecompose = async () => {
     if (decomposeLoading) return;
     setDecomposeLoading(true);
@@ -863,26 +1016,63 @@ function EpicTaskNode({
         estimatedMinutes: task.estimatedMinutes,
         type: 'epic',
       });
-      const subtasks = res.subtasks || [];
-      // 批量创建子任务
-      for (const st of subtasks) {
-        await addTask({
-          name: st.name || '',
-          description: st.description || '',
-          type: 'epic',
-          difficulty: st.difficulty as TaskDifficulty || 'normal',
-          estimatedMinutes: st.estimatedMinutes || 30,
-          stage: st.stage || 1,
-          parentId: task.id,
-        });
+      const subtasks = res.subtasks ?? [];
+      if (subtasks.length === 0) {
+        toast.error('AI 未返回子任务，请调整描述或模型后重试');
+        return;
       }
-      toast.success(`AI 已拆解出 ${subtasks.length} 个子任务`);
+      saveDraft({ id: task.id, name: task.name }, subtasks);
+      toast.success(`AI 已生成 ${subtasks.length} 条草稿，确认后加入任务`);
       if (!expanded) onToggle();
     } catch (e: any) {
-      toast.error('AI 拆解失败', { description: e?.message || '请检查后端 LLM 配置' });
+      toast.error('AI 拆解失败', { description: e?.message || '请检查 AI 配置' });
     } finally {
       setDecomposeLoading(false);
     }
+  };
+
+  // 单条草稿转正：加入任务后从草稿移除
+  const handleConvertOne = (subtaskId: string) => {
+    if (!draft) return;
+    const st = draft.subtasks.find((s) => s.id === subtaskId);
+    if (!st) return;
+    addTask({
+      name: st.name,
+      description: st.description,
+      type: 'epic',
+      difficulty: st.difficulty,
+      estimatedMinutes: st.estimatedMinutes,
+      stage: st.stage || 1,
+      parentId: task.id,
+    });
+    removeSubtask(draft.id, subtaskId);
+    toast.success(`已加入「${st.name}」`);
+  };
+
+  // 全部转正
+  const handleConvertAll = () => {
+    if (!draft) return;
+    const n = draft.subtasks.length;
+    for (const st of draft.subtasks) {
+      addTask({
+        name: st.name,
+        description: st.description,
+        type: 'epic',
+        difficulty: st.difficulty,
+        estimatedMinutes: st.estimatedMinutes,
+        stage: st.stage || 1,
+        parentId: task.id,
+      });
+    }
+    removeDraft(draft.id);
+    toast.success(`已将 ${n} 条草稿加入任务`);
+  };
+
+  // 丢弃整份草稿
+  const handleDiscardDraft = () => {
+    if (!draft) return;
+    removeDraft(draft.id);
+    toast.info('草稿已丢弃');
   };
 
   return (
@@ -890,6 +1080,7 @@ function EpicTaskNode({
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.35, delay: index * 0.05 }}
+      id={task.id}
       className={cn(
         'rounded-lg border transition-all',
         task.status === 'completed'
@@ -964,6 +1155,12 @@ function EpicTaskNode({
               <Badge className="text-[10px] bg-accent/20 text-accent border-accent/40">
                 <Zap className="h-3 w-3 mr-1" />
                 注意力
+              </Badge>
+            )}
+            {draft && draft.subtasks.length > 0 && (
+              <Badge className="text-[10px] bg-primary/20 text-primary border-primary/40">
+                <Sparkles className="h-3 w-3 mr-1" />
+                草稿 {draft.subtasks.length}
               </Badge>
             )}
           </div>
@@ -1080,6 +1277,19 @@ function EpicTaskNode({
                 </Button>
               </div>
 
+              {draft && draft.subtasks.length > 0 && (
+                <AiDraftPanel
+                  draft={draft}
+                  onConvertOne={handleConvertOne}
+                  onConvertAll={handleConvertAll}
+                  onRedo={handleDecompose}
+                  onDiscard={handleDiscardDraft}
+                  onUpdateSubtask={(subtaskId, patch) => updateSubtask(draft.id, subtaskId, patch)}
+                  onRemoveSubtask={(subtaskId) => removeSubtask(draft.id, subtaskId)}
+                  converting={decomposeLoading}
+                />
+              )}
+
               {children.length > 0 ? (
                 <div className="space-y-4">
                   {Array.from(new Set(children.map((c) => c.stage || 1)))
@@ -1135,6 +1345,159 @@ function EpicTaskNode({
         )}
       </AnimatePresence>
     </motion.div>
+  );
+}
+
+// ========== AI 草稿面板 ==========
+function AiDraftPanel({
+  draft,
+  onConvertOne,
+  onConvertAll,
+  onRedo,
+  onDiscard,
+  onUpdateSubtask,
+  onRemoveSubtask,
+  converting,
+}: {
+  draft: IAiDraft;
+  onConvertOne: (subtaskId: string) => void;
+  onConvertAll: () => void;
+  onRedo: () => void;
+  onDiscard: () => void;
+  onUpdateSubtask: (subtaskId: string, patch: Partial<IAiSubtaskDraft>) => void;
+  onRemoveSubtask: (subtaskId: string) => void;
+  converting: boolean;
+}) {
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+
+  return (
+    <div className="mb-3 rounded-md border border-primary/30 bg-primary/5 p-3">
+      <div className="flex items-center justify-between gap-2 mb-2">
+        <div className="flex items-center gap-2 text-xs font-medium text-primary">
+          <Sparkles className="h-3.5 w-3.5" />
+          AI 拆解草稿（{draft.subtasks.length}）
+        </div>
+        <div className="flex items-center gap-1.5">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-6 gap-1 text-[11px] hover:bg-primary/10 hover:text-primary"
+            onClick={onRedo}
+            disabled={converting}
+          >
+            <RefreshCw className={`h-3 w-3 ${converting ? 'animate-spin' : ''}`} />
+            重新拆解
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-6 gap-1 text-[11px] text-destructive hover:bg-destructive/10"
+            onClick={() => setConfirmDiscard(true)}
+            disabled={converting}
+          >
+            <Trash2 className="h-3 w-3" />
+            丢弃
+          </Button>
+        </div>
+      </div>
+
+      <p className="text-[10px] text-muted-foreground mb-2">
+        草稿仅保存在本机，不会同步到云端；确认加入后才进入任务列表并上云。
+      </p>
+
+      <div className="space-y-2">
+        {draft.subtasks.map((st) => (
+          <div
+            key={st.id}
+            className="flex flex-col gap-2 rounded-md border border-border/40 bg-card/60 p-2.5"
+          >
+            <div className="flex items-center gap-2">
+              <Input
+                value={st.name}
+                onChange={(e) => onUpdateSubtask(st.id, { name: e.target.value })}
+                className="h-7 text-xs"
+                placeholder="子任务名称"
+              />
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 shrink-0 text-destructive hover:text-destructive"
+                onClick={() => onRemoveSubtask(st.id)}
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+            <div className="flex items-center gap-2">
+              <Select
+                value={st.difficulty}
+                onValueChange={(v) => onUpdateSubtask(st.id, { difficulty: v as TaskDifficulty })}
+              >
+                <SelectTrigger className="h-7 w-28 text-[11px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="easy">简单</SelectItem>
+                  <SelectItem value="normal">普通</SelectItem>
+                  <SelectItem value="hard">困难</SelectItem>
+                  <SelectItem value="epic">史诗</SelectItem>
+                </SelectContent>
+              </Select>
+              <div className="flex items-center gap-1 flex-1">
+                <Clock className="h-3 w-3 text-muted-foreground" />
+                <Input
+                  type="number"
+                  min={5}
+                  value={st.estimatedMinutes}
+                  onChange={(e) =>
+                    onUpdateSubtask(st.id, {
+                      estimatedMinutes: Math.max(5, Number(e.target.value) || 5),
+                    })
+                  }
+                  className="h-7 text-[11px]"
+                />
+                <span className="text-[10px] text-muted-foreground shrink-0">分钟</span>
+              </div>
+              <Button
+                size="sm"
+                className="h-7 gap-1 text-[11px] shrink-0"
+                onClick={() => onConvertOne(st.id)}
+              >
+                <Plus className="h-3 w-3" />
+                加入
+              </Button>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <Button className="mt-3 w-full h-8 gap-1.5 text-xs" onClick={onConvertAll}>
+        <CheckCircle2 className="h-3.5 w-3.5" />
+        全部加入任务（{draft.subtasks.length}）
+      </Button>
+
+      <AlertDialog open={confirmDiscard} onOpenChange={setConfirmDiscard}>
+        <AlertDialogContent className="border-border bg-card">
+          <AlertDialogHeader>
+            <AlertDialogTitle>丢弃这份草稿？</AlertDialogTitle>
+            <AlertDialogDescription>
+              将删除「{draft.parentTaskName}」下的 {draft.subtasks.length} 条 AI 草稿，此操作不可撤销。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>取消</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                setConfirmDiscard(false);
+                onDiscard();
+              }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              确认丢弃
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
   );
 }
 

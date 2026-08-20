@@ -3,7 +3,7 @@
 import type { IQuestTask, ISkillNode, IShopItem, IAppSettings, IManaConfig, IFocusLog } from '@/types/quest';
 
 // ========== 预设任务 ==========
-export const PRESET_TASKS: IQuestTask[] = [
+const PRESET_TASKS_RAW: Omit<IQuestTask, 'updatedAt'>[] = [
   // 史诗任务 1：打造个人作品集网站
   {
     id: 'epic-portfolio',
@@ -218,6 +218,12 @@ export const PRESET_TASKS: IQuestTask[] = [
     tags: ['健康', '运动'],
   },
 ];
+
+// 补全 updatedAt（与 createdAt 对齐，保证 LWW 合并时本地编辑优先）
+export const PRESET_TASKS: IQuestTask[] = PRESET_TASKS_RAW.map((t) => ({
+  ...t,
+  updatedAt: t.createdAt,
+}));
 
 // ========== 预设能力树 ==========
 type CapabilitySeedNode = {

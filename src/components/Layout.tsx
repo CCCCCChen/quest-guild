@@ -3,6 +3,7 @@ import { SidebarProvider, SidebarInset } from '@/components/ui/sidebar';
 import AppSidebar from '@/components/AppSidebar';
 import Topbar from '@/components/Topbar';
 import FloatingWidget from '@/components/FloatingWidget';
+import CelebrationLayer from '@/components/CelebrationLayer';
 import { useFloatingMode } from '@/hooks/useFloatingMode';
 import { AnimatePresence, motion } from 'framer-motion';
 
@@ -48,6 +49,7 @@ export function Layout() {
         </main>
       </SidebarInset>
       <FloatingWidget />
+      <CelebrationLayer />
     </SidebarProvider>
   );
 }

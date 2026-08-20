@@ -159,6 +159,7 @@ export default function TodayPage() {
       description: '',
       type: quickType,
       difficulty: quickDifficulty,
+      importance: 'medium',
       estimatedMinutes: mins,
       tags: [],
     });
@@ -180,7 +181,7 @@ export default function TodayPage() {
 
   const handleAddAttention = (taskId: string) => {
     if (activeAttentionTasks.length >= settings.manaMax) {
-      toast.error('法力水晶不足', { description: '请先完成其他注意力任务' });
+      toast.error('专注槽已满', { description: '请先完成其他注意力任务' });
       return;
     }
     addAttentionTask(taskId, settings.manaMax);
@@ -486,7 +487,7 @@ export default function TodayPage() {
             <Zap className="h-5 w-5 text-accent" />
             <h2 className="text-lg font-bold text-foreground">注意力任务</h2>
             <Badge variant="outline" className="text-xs border-accent/40 text-accent">
-              法力水晶 {activeAttentionTasks.length}/{settings.manaMax}
+              专注槽 {activeAttentionTasks.length}/{settings.manaMax}
             </Badge>
           </div>
         </div>

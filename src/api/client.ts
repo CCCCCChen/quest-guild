@@ -1,39 +1,21 @@
-const API_BASE = import.meta.env.VITE_API_BASE || '/api';
+/**
+ * 方案A：本地纯前端模式（无本地 HTTP server）。
+ *
+ * 保留 api 对象仅为兼容历史导入签名；所有业务 api 模块已改为本地持久化适配器，
+ * 不再经由 HTTP。任何误用本对象的调用都会得到明确的「本地模式无服务」错误，
+ * 而不是静默失败或连接拒绝。
+ */
 
-async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
-  // Electron 环境：通过 IPC 代理转发到本地后端
-  if (window.electronAPI?.api?.proxy) {
-    const method = options.method || 'GET';
-    const body = options.body ? JSON.parse(options.body as string) : undefined;
-    const res = await window.electronAPI.api.proxy(method, path, body);
-    if (res.status !== 200 && res.status !== 201) {
-      const err = (res.body as { error?: string })?.error || `请求失败: ${res.status}`;
-      throw new Error(res.status === 0 ? `后端未启动: ${res.error}` : err);
-    }
-    return res.body as T;
-  }
-
-  // 浏览器 / Vite dev server 环境：直接 fetch
-  const res = await fetch(`${API_BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
-    ...options,
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(err.error || `请求失败: ${res.status}`);
-  }
-  return res.json();
+function unavailable<T>(path: string, method: string): Promise<T> {
+  return Promise.reject(new Error(`[本地模式] 无 HTTP 服务：${method} ${path}`));
 }
 
 export const api = {
-  get: <T>(path: string) => request<T>(path),
-  post: <T>(path: string, body?: unknown) =>
-    request<T>(path, { method: 'POST', body: body ? JSON.stringify(body) : undefined }),
-  put: <T>(path: string, body: unknown) =>
-    request<T>(path, { method: 'PUT', body: JSON.stringify(body) }),
-  patch: <T>(path: string, body: unknown) =>
-    request<T>(path, { method: 'PATCH', body: JSON.stringify(body) }),
-  delete: <T>(path: string) => request<T>(path, { method: 'DELETE' }),
+  get: <T>(path: string) => unavailable<T>(path, 'GET'),
+  post: <T>(path: string, _body?: unknown) => unavailable<T>(path, 'POST'),
+  put: <T>(path: string, _body?: unknown) => unavailable<T>(path, 'PUT'),
+  patch: <T>(path: string, _body?: unknown) => unavailable<T>(path, 'PATCH'),
+  delete: <T>(path: string) => unavailable<T>(path, 'DELETE'),
 };
 
 export default api;

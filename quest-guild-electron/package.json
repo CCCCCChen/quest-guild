@@ -8,7 +8,7 @@
   "scripts": {
     "electron:dev": "electron .",
     "start": "npm run build:renderer && electron .",
-    "build:renderer": "node scripts/build-renderer.mjs",
+    "build:renderer": "node ../scripts/build-renderer.mjs",
     "prebuild": "node -e \"const cp=require('child_process');const fs=require('fs');const p=require('path');const rd=p.join(__dirname,'release');const delay=ms=>new Promise(r=>setTimeout(r,ms));async function clean(maxRetries=5){if(!fs.existsSync(rd)){console.log('release 目录不存在，跳过清理');return;}for(let i=0;i<maxRetries;i++){try{cp.execSync('rd /s /q release',{cwd:__dirname,stdio:'pipe'});console.log('已清理 release 目录');return;}catch(e){const locked=e.message.match(/cannot access the file|being used|being used by|: (.+?) /);const file=locked?locked[1]||locked[0]:'';console.log('清理失败 ('+(i+1)+'/'+maxRetries+')'+(file?' '+file:''));if(i<maxRetries-1){await delay(2000);}}}console.error('FATAL: release 目录被占用，无法清理。请关闭占用进程后重试。');process.exit(1);}clean();\"",
     "retry-build": "node -e \"const cp=require('child_process');const p=require('path');const eb=p.join(__dirname,'node_modules','.bin','electron-builder.cmd');const args=process.argv.slice(2);for(let i=0;i<3;i++){const r=cp.spawnSync(eb,args,{cwd:__dirname,stdio:'inherit',shell:true,env:{...process.env,ELECTRON_BUILDER_CACHE:p.join(__dirname,'.electron-cache')}});if(r.status===0)process.exit(0);console.log('尝试 '+(i+1)+' 失败，'+(i<2?'3秒后重试...':'已达最大重试次数'));if(i<2)cp.execSync('timeout /t 3 /nobreak',{stdio:'inherit'});}process.exit(1);\" --",
     "build": "npm run prebuild && npm run build:renderer && npm run retry-build",
@@ -21,11 +21,8 @@
     "electron-builder": "^24.9.1"
   },
   "dependencies": {
-    "better-sqlite3": "^11.3.0",
-    "cors": "^2.8.5",
     "electron-log": "^5.4.4",
-    "electron-store": "^8.1.0",
-    "express": "^4.19.2"
+    "electron-store": "^8.1.0"
   },
   "build": {
     "appId": "com.questguild.app",
@@ -41,7 +38,6 @@
       "main.js",
       "preload.js",
       "renderer/**/*",
-      "server/**/*",
       "assets/**/*"
     ],
     "win": {

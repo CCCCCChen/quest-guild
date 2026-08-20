@@ -3,6 +3,7 @@ import { toast } from 'sonner';
 import { motion } from 'framer-motion';
 import {
   Settings as SettingsIcon,
+  Bot,
   Gem,
   Clock,
   Volume2,
@@ -22,6 +23,7 @@ import {
   RefreshCw,
   CheckCircle2,
   XCircle,
+  Cloud,
   Database,
   Merge,
   FileSpreadsheet,
@@ -50,6 +52,8 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 import { useSettings } from '@/hooks/useSettings';
+import { useSync } from '@/hooks/useSync';
+import { loadAiConfig, saveAiConfig } from '@/lib/aiConfig';
 import {
   listBackups,
   restoreBackup,
@@ -73,6 +77,8 @@ const STORAGE_KEYS = [
 
 export default function SettingsPage() {
   const { settings, updateSettings, resetSettings } = useSettings();
+  const { state: syncState, syncNow } = useSync();
+  const [syncing, setSyncing] = useState(false);
   const [manaMax, setManaMax] = useState(settings.manaMax);
   const [resetTime, setResetTime] = useState(settings.resetTime);
   const [soundEnabled, setSoundEnabled] = useState(settings.soundEnabled);
@@ -89,6 +95,29 @@ export default function SettingsPage() {
   } | null>(null);
   const [importMode, setImportMode] = useState<'merge' | 'overwrite'>('overwrite');
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // AI 拆解配置（仅本地浏览器保存）
+  const [aiApiKey, setAiApiKey] = useState('');
+  const [aiBaseUrl, setAiBaseUrl] = useState('https://api.openai.com/v1');
+  const [aiModel, setAiModel] = useState('gpt-4o-mini');
+
+  useEffect(() => {
+    const cfg = loadAiConfig();
+    setAiApiKey(cfg.apiKey);
+    setAiBaseUrl(cfg.baseUrl);
+    setAiModel(cfg.model);
+  }, []);
+
+  const handleSaveAiConfig = useCallback(() => {
+    saveAiConfig({
+      apiKey: aiApiKey.trim(),
+      baseUrl: aiBaseUrl.trim() || 'https://api.openai.com/v1',
+      model: aiModel.trim() || 'gpt-4o-mini',
+    });
+    toast.success('AI 拆解配置已保存', {
+      description: '仅保存在本机浏览器，不会上传到任何服务器',
+    });
+  }, [aiApiKey, aiBaseUrl, aiModel]);
 
   const refreshBackups = useCallback(() => {
     setBackups(listBackups());
@@ -113,7 +142,7 @@ export default function SettingsPage() {
       const v = value[0];
       setManaMax(v);
       updateSettings({ manaMax: v });
-      toast.success(`法力水晶上限已调整为 ${v}`, {
+      toast.success(`专注槽上限已调整为 ${v}`, {
         description: '注意力任务最大并行数已更新',
       });
     },
@@ -351,6 +380,23 @@ export default function SettingsPage() {
     setTimeout(() => window.location.reload(), 1000);
   }, [resetSettings]);
 
+  const handleCloudSync = useCallback(async () => {
+    if (syncing) return;
+    setSyncing(true);
+    try {
+      await syncNow();
+      toast.success('已同步到云端', {
+        description: syncState.lastSyncAt
+          ? `上次同步：${new Date(syncState.lastSyncAt).toLocaleString()}`
+          : undefined,
+      });
+    } catch (e) {
+      toast.error('同步失败', { description: e instanceof Error ? e.message : String(e) });
+    } finally {
+      setSyncing(false);
+    }
+  }, [syncing, syncNow, syncState.lastSyncAt]);
+
   const manaCrystals = Array.from({ length: manaMax }, (_, i) => i);
 
   return (
@@ -371,7 +417,7 @@ export default function SettingsPage() {
         </div>
       </motion.div>
 
-      {/* 法力水晶设置 */}
+      {/* 专注槽设置 */}
       <motion.div
         initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
@@ -384,7 +430,7 @@ export default function SettingsPage() {
                 <Gem className="h-4 w-4 text-accent" />
               </div>
               <div>
-                <CardTitle className="text-base font-semibold">法力水晶上限</CardTitle>
+                <CardTitle className="text-base font-semibold">专注槽上限</CardTitle>
                 <CardDescription className="text-xs">
                   决定你每天可同时激活的注意力任务数量
                 </CardDescription>
@@ -805,6 +851,136 @@ export default function SettingsPage() {
                   </AlertDialogFooter>
                 </AlertDialogContent>
               </AlertDialog>
+            </div>
+          </CardContent>
+        </Card>
+      </motion.div>
+
+      {/* AI 拆解配置 */}
+      <motion.div
+        initial={{ opacity: 0, y: 16 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4, delay: 0.18 }}
+      >
+        <Card className="border-border/60 bg-card/60 backdrop-blur-sm overflow-hidden">
+          <CardHeader className="border-b border-border/40 pb-4">
+            <div className="flex items-center gap-3">
+              <div className="flex h-9 w-9 items-center justify-center rounded-md bg-primary/20">
+                <Bot className="h-4 w-4 text-primary" />
+              </div>
+              <div>
+                <CardTitle className="text-base font-semibold">AI 拆解配置</CardTitle>
+                <CardDescription className="text-xs">
+                  配置 OpenAI 兼容接口，用于史诗任务的「AI 拆解」生成子任务草稿
+                </CardDescription>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="pt-6 space-y-4">
+            <div className="space-y-1.5">
+              <Label className="text-sm text-foreground">API Key</Label>
+              <Input
+                type="password"
+                value={aiApiKey}
+                onChange={(e) => setAiApiKey(e.target.value)}
+                placeholder="sk-..."
+                autoComplete="off"
+                className="font-mono"
+              />
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label className="text-sm text-foreground">Base URL</Label>
+                <Input
+                  value={aiBaseUrl}
+                  onChange={(e) => setAiBaseUrl(e.target.value)}
+                  placeholder="https://api.openai.com/v1"
+                  className="font-mono text-xs"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-sm text-foreground">模型</Label>
+                <Input
+                  value={aiModel}
+                  onChange={(e) => setAiModel(e.target.value)}
+                  placeholder="gpt-4o-mini"
+                  className="font-mono text-xs"
+                />
+              </div>
+            </div>
+            <div className="flex items-center justify-between gap-3 pt-1">
+              <p className="text-[11px] text-muted-foreground leading-relaxed">
+                密钥仅保存在本机浏览器，AI 请求由浏览器直连你的接口，不会经过任何中间服务器。
+              </p>
+              <Button onClick={handleSaveAiConfig} className="gap-2 shrink-0" size="sm">
+                <CheckCircle2 className="h-3.5 w-3.5" />
+                保存配置
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </motion.div>
+
+      {/* 云端同步（Phase 2 B+ 延迟同步） */}
+      <motion.div
+        initial={{ opacity: 0, y: 16 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4, delay: 0.2 }}
+      >
+        <Card className="border-border/60 bg-card/60 backdrop-blur-sm overflow-hidden">
+          <CardHeader className="border-b border-border/40 pb-4">
+            <div className="flex items-center gap-3">
+              <div className="flex h-9 w-9 items-center justify-center rounded-md bg-primary/20">
+                <Cloud className="h-4 w-4 text-primary" />
+              </div>
+              <div>
+                <CardTitle className="text-base font-semibold">云端同步</CardTitle>
+                <CardDescription className="text-xs">
+                  将公会数据（任务、声望、能力点）同步到云端工作台
+                </CardDescription>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="pt-6 space-y-4">
+            {/* 同步状态 */}
+            <div className="flex items-center justify-between rounded-md border border-border/40 bg-secondary/20 px-3 py-2.5">
+              <div className="flex items-center gap-2 min-w-0">
+                {syncState.lastError ? (
+                  <XCircle className="h-4 w-4 text-destructive shrink-0" />
+                ) : (
+                  <CheckCircle2 className="h-4 w-4 text-success shrink-0" />
+                )}
+                <div className="min-w-0">
+                  <div className="text-xs font-medium text-foreground truncate">
+                    {syncState.lastSyncAt
+                      ? `上次同步：${new Date(syncState.lastSyncAt).toLocaleString()}`
+                      : '尚未同步'}
+                  </div>
+                  {syncState.lastError && (
+                    <div className="text-[10px] text-destructive truncate">{syncState.lastError}</div>
+                  )}
+                </div>
+              </div>
+              {syncState.dirtyTaskIds.length + syncState.deletedTaskIds.length > 0 && (
+                <Badge variant="outline" className="border-warning/40 text-warning shrink-0">
+                  {syncState.dirtyTaskIds.length + syncState.deletedTaskIds.length} 条待同步
+                </Badge>
+              )}
+            </div>
+
+            {/* 同步说明 + 按钮 */}
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-[11px] text-muted-foreground leading-relaxed">
+                数据变更后会自动标记，关闭应用前与手动点击时推送到云端（最后写入优先）。
+              </p>
+              <Button
+                onClick={handleCloudSync}
+                disabled={syncing}
+                className="h-9 shrink-0 gap-2"
+              >
+                <RefreshCw className={`h-4 w-4 ${syncing ? 'animate-spin' : ''}`} />
+                {syncing ? '同步中…' : '同步到云端'}
+              </Button>
             </div>
           </CardContent>
         </Card>

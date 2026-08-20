@@ -115,7 +115,7 @@ export default function ProjectDetailPage() {
 
   function addFocus(taskId: string) {
     if (activeAttentionTasks.length >= settings.manaMax) {
-      toast.error('法力水晶不足', { description: '请先完成其他注意力任务' });
+      toast.error('专注槽已满', { description: '请先完成其他注意力任务' });
       return;
     }
     const ok = addAttentionTask(taskId, settings.manaMax);

@@ -39,7 +39,7 @@ function setSettingsValue(v: IAppSettings) {
 async function syncFromServer() {
   try {
     const data = await settingsApi.get();
-    setSettingsValue(data);
+    if (data) setSettingsValue(data);
   } catch {
     // 使用本地缓存
   }

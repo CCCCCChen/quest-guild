@@ -35,28 +35,27 @@ import {
   FormMessage,
 } from '@/components/ui/form';
 import { Badge } from '@/components/ui/badge';
+import { formatDate } from '@/lib/utils';
+import { Progress } from '@/components/ui/progress';
 import { useGoals } from '@/hooks/useGoals';
+import { useProjects } from '@/hooks/useProjects';
+import { useTasks } from '@/hooks/useTasks';
 import type { IGoal } from '@/types/quest';
 
 const formSchema = z.object({
   name: z.string().min(1, '请输入目标名称').max(50, '名称过长'),
   description: z.string().max(500, '描述过长').optional(),
   deadline: z.string().optional(),
+  milestone: z.string().max(200, '里程碑过长').optional(),
+  milestoneDeadline: z.string().optional(),
 });
 
 type FormValues = z.infer<typeof formSchema>;
 
-function formatDate(ts?: number) {
-  if (!ts) return '';
-  const d = new Date(ts);
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  const dd = String(d.getDate()).padStart(2, '0');
-  return `${yyyy}-${mm}-${dd}`;
-}
-
 export default function GoalsPage() {
   const { goals, addGoal, updateGoal, deleteGoal } = useGoals();
+  const { projects } = useProjects();
+  const { tasks } = useTasks();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<IGoal | null>(null);
   const [deleting, setDeleting] = useState<IGoal | null>(null);
@@ -67,6 +66,8 @@ export default function GoalsPage() {
       name: '',
       description: '',
       deadline: '',
+      milestone: '',
+      milestoneDeadline: '',
     },
   });
 
@@ -74,28 +75,81 @@ export default function GoalsPage() {
     return [...goals].sort((a, b) => b.createdAt - a.createdAt);
   }, [goals]);
 
+  // 项目按目标分组
+  const projectIdsByGoal = useMemo(() => {
+    const m = new Map<string, string[]>();
+    for (const p of projects) {
+      if (!p.goalId) continue;
+      if (!m.has(p.goalId)) m.set(p.goalId, []);
+      m.get(p.goalId)!.push(p.id);
+    }
+    return m;
+  }, [projects]);
+
+  // 任务按项目分组
+  const tasksByProject = useMemo(() => {
+    const m = new Map<string, typeof tasks>();
+    for (const t of tasks) {
+      if (!t.projectId) continue;
+      if (!m.has(t.projectId)) m.set(t.projectId, []);
+      m.get(t.projectId)!.push(t);
+    }
+    return m;
+  }, [tasks]);
+
+  // 目标聚合统计：项目数 + 任务完成进度
+  const goalStats = useMemo(() => {
+    const m = new Map<string, { projectCount: number; taskTotal: number; taskDone: number }>();
+    for (const g of goals) {
+      const pids = projectIdsByGoal.get(g.id) || [];
+      let taskTotal = 0;
+      let taskDone = 0;
+      for (const pid of pids) {
+        const list = tasksByProject.get(pid) || [];
+        taskTotal += list.length;
+        taskDone += list.filter((t) => t.status === 'completed').length;
+      }
+      m.set(g.id, { projectCount: pids.length, taskTotal, taskDone });
+    }
+    return m;
+  }, [goals, projectIdsByGoal, tasksByProject]);
+
+  const now = Date.now();
+  function isOverdue(ts?: number) {
+    return !!ts && ts < now;
+  }
+
   function resetForm(nextEditing: IGoal | null) {
     setEditing(nextEditing);
     form.reset({
       name: nextEditing?.name ?? '',
       description: nextEditing?.description ?? '',
       deadline: formatDate(nextEditing?.deadline),
+      milestone: nextEditing?.milestone ?? '',
+      milestoneDeadline: formatDate(nextEditing?.milestoneDeadline),
     });
   }
 
   async function onSubmit(values: FormValues) {
     const deadline = values.deadline ? new Date(values.deadline).getTime() : undefined;
+    const milestoneDeadline = values.milestoneDeadline
+      ? new Date(values.milestoneDeadline).getTime()
+      : undefined;
     if (editing) {
       await updateGoal(editing.id, {
         name: values.name,
         description: values.description || '',
         deadline,
+        milestone: values.milestone || undefined,
+        milestoneDeadline,
       });
     } else {
       await addGoal({
         name: values.name,
         description: values.description || '',
         deadline,
+        milestone: values.milestone || undefined,
+        milestoneDeadline,
       });
     }
     setOpen(false);
@@ -175,6 +229,34 @@ export default function GoalsPage() {
                   )}
                 />
 
+                <FormField
+                  control={form.control}
+                  name="milestone"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>里程碑</FormLabel>
+                      <FormControl>
+                        <Input placeholder="例如：完成数据底座 v1" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="milestoneDeadline"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>里程碑截止</FormLabel>
+                      <FormControl>
+                        <Input type="date" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
                 <DialogFooter>
                   <Button type="submit">{editing ? '保存' : '创建'}</Button>
                 </DialogFooter>
@@ -196,7 +278,16 @@ export default function GoalsPage() {
                       {goal.status === 'archived' ? '已归档' : '进行中'}
                     </Badge>
                     {goal.deadline ? (
-                      <Badge variant="outline">截止 {formatDate(goal.deadline)}</Badge>
+                      <Badge variant={isOverdue(goal.deadline) ? 'destructive' : 'outline'}>
+                        {isOverdue(goal.deadline) ? '已逾期 ' : '截止 '}
+                        {formatDate(goal.deadline)}
+                      </Badge>
+                    ) : null}
+                    {goal.milestone ? (
+                      <Badge variant="outline" className="border-primary/40 text-primary">
+                        🏁 {goal.milestone}
+                        {goal.milestoneDeadline ? `（${formatDate(goal.milestoneDeadline)}）` : ''}
+                      </Badge>
                     ) : null}
                   </div>
                 </div>
@@ -223,10 +314,28 @@ export default function GoalsPage() {
                 </div>
               </div>
             </CardHeader>
-            <CardContent>
+            <CardContent className="space-y-3">
               <div className="text-sm text-muted-foreground">
                 {goal.description ? <MarkdownRenderer content={goal.description} /> : '（暂无描述）'}
               </div>
+
+              {/* 目标汇总：项目数 + 任务完成进度 */}
+              {(() => {
+                const stat = goalStats.get(goal.id);
+                if (!stat) return null;
+                const pct = stat.taskTotal === 0 ? 0 : Math.round((stat.taskDone / stat.taskTotal) * 100);
+                return (
+                  <div className="space-y-1 rounded-md border border-border/50 bg-secondary/30 px-3 py-2">
+                    <div className="flex items-center justify-between text-xs text-muted-foreground">
+                      <span>
+                        项目 {stat.projectCount} · 任务 {stat.taskDone}/{stat.taskTotal}
+                      </span>
+                      <span className="tabular-nums">{pct}%</span>
+                    </div>
+                    <Progress value={pct} />
+                  </div>
+                );
+              })()}
             </CardContent>
           </Card>
         ))}
