@@ -22,6 +22,8 @@ import {
   ArrowDown,
   RefreshCw,
   FileSpreadsheet,
+  Loader2,
+  AlertCircle,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -1003,11 +1005,13 @@ function EpicTaskNode({
       : task.bossProgress;
 
   const [decomposeLoading, setDecomposeLoading] = useState(false);
+  const [decomposeError, setDecomposeError] = useState<string | null>(null);
 
   // AI 拆解：调用 LLM 生成子任务草稿，写入草稿箱（不直接进任务列表/不同步）
   const handleDecompose = async () => {
     if (decomposeLoading) return;
     setDecomposeLoading(true);
+    setDecomposeError(null);
     try {
       const res = await tasksApi.decompose({
         name: task.name,
@@ -1018,14 +1022,14 @@ function EpicTaskNode({
       });
       const subtasks = res.subtasks ?? [];
       if (subtasks.length === 0) {
-        toast.error('AI 未返回子任务，请调整描述或模型后重试');
+        setDecomposeError('AI 未返回子任务，请调整描述或模型后重试');
         return;
       }
       saveDraft({ id: task.id, name: task.name }, subtasks);
       toast.success(`AI 已生成 ${subtasks.length} 条草稿，确认后加入任务`);
       if (!expanded) onToggle();
     } catch (e: any) {
-      toast.error('AI 拆解失败', { description: e?.message || '请检查 AI 配置' });
+      setDecomposeError(e?.message || '请检查 AI 配置');
     } finally {
       setDecomposeLoading(false);
     }
@@ -1276,6 +1280,20 @@ function EpicTaskNode({
                   {decomposeLoading ? '拆解中...' : 'AI 拆解'}
                 </Button>
               </div>
+
+              {decomposeLoading && (
+                <div className="flex items-center gap-2 px-1 py-2 text-xs text-muted-foreground">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+                  AI 正在生成中…
+                </div>
+              )}
+
+              {!decomposeLoading && decomposeError && (
+                <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-2.5 py-2 text-xs text-destructive">
+                  <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                  <span>AI 拆解未成功：{decomposeError}</span>
+                </div>
+              )}
 
               {draft && draft.subtasks.length > 0 && (
                 <AiDraftPanel
