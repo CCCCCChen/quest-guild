@@ -27,7 +27,7 @@
   - ✅ P0-3 公式/`/sync`/`stage`/`rewardSkillPoints` 已对齐。
   - ✅ 双向 LWW + 墓碑（`workspace_task_tombstones`）+ 快照对账删除（本地权威，杜绝复活）。
   - ✅ `importance`/`actualMinutes` 已进同步快照（2026-08-20 补齐，云端列+upsert+mapTask+前端映射）。
-  - ⏭️ `tags`/`goalId`/`projectId` 未进同步（workspace 无对应概念，留 JSON blob 或后续处理）。
+  - ✅ `tags`/`goalId`/`projectId` 已进同步（2026-08-20 补齐：云端 workspace_tasks 加 `goal_id`/`project_id`/`tags` 列 + upsert/mapTask，前端 QgTaskSnapshot/推送/双向合并全映射；`tags` 存 JSON 数组；修复"同步后丢关联"）。
   - ✅ workspace `public/index.html`「待办任务」排除 `source='qg'`，quest 任务只归「悬赏任务」专区，避免重复 + 删除残留。
 - ⏭️ **Phase 7**（C 独立服务）：远期可选。
 

@@ -10,7 +10,49 @@
     "lint": "concurrently npm:typecheck npm:lint:eslint",
     "lint:eslint": "eslint src",
     "precommit": "npm run lint",
-    "prepare": "node scripts/setup-git-hooks.mjs"
+    "prepare": "node scripts/setup-git-hooks.mjs",
+    "electron:dev": "electron .",
+    "electron:build:renderer": "node scripts/build-renderer.mjs",
+    "electron:clean": "node scripts/electron-clean-release.mjs",
+    "electron:build": "npm run electron:clean && npm run electron:build:renderer && node scripts/electron-retry-build.mjs",
+    "electron:build:win64": "npm run electron:clean && npm run electron:build:renderer && node scripts/electron-retry-build.mjs --win --x64",
+    "electron:build:portable": "npm run electron:clean && npm run electron:build:renderer && node scripts/electron-retry-build.mjs --win portable"
+  },
+  "main": "quest-guild-electron/main.cjs",
+  "build": {
+    "appId": "com.questguild.app",
+    "productName": "悬赏任务公会",
+    "icon": "quest-guild-electron/assets/icon.ico",
+    "electronDownload": {
+      "cache": "quest-guild-electron/.electron-cache"
+    },
+    "directories": {
+      "output": "quest-guild-electron/release"
+    },
+    "files": [
+      "quest-guild-electron/main.cjs",
+      "quest-guild-electron/preload.cjs",
+      "quest-guild-electron/renderer/**/*",
+      "quest-guild-electron/assets/**/*"
+    ],
+    "win": {
+      "icon": "quest-guild-electron/assets/icon.ico",
+      "signAndEditExecutable": false,
+      "target": [
+        { "target": "nsis", "arch": ["x64"] },
+        { "target": "portable", "arch": ["x64"] }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "悬赏任务公会"
+    },
+    "portable": {
+      "artifactName": "悬赏任务公会-Portable.exe"
+    }
   },
   "dependencies": {
     "@formkit/auto-animate": "^0.9.0",
@@ -70,7 +112,9 @@
     "tailwindcss": "^4.2.2",
     "tw-animate-css": "^1.2.0",
     "vaul": "^1.1.2",
-    "zod": "^4.3.6"
+    "zod": "^4.3.6",
+    "electron-log": "^5.4.4",
+    "electron-store": "^8.1.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.32.0",
@@ -86,6 +130,8 @@
     "globals": "^15.15.0",
     "typescript": "~5.9",
     "typescript-eslint": "^8.38.0",
-    "vite": "^8"
+    "vite": "^8",
+    "electron": "^28.0.0",
+    "electron-builder": "^24.9.1"
   }
 }
