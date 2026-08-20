@@ -54,10 +54,10 @@ export function MarkdownEditor({
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder}
           rows={rows}
-          className="border-0 rounded-none min-h-20 resize-none focus-visible:ring-0"
+          className="border-0 rounded-none min-h-20 max-h-64 resize-none overflow-y-auto field-sizing-fixed focus-visible:ring-0"
         />
       ) : (
-        <div className="p-3 min-h-20">
+        <div className="p-3 min-h-20 max-h-64 overflow-y-auto">
           {value ? (
             <MarkdownRenderer content={value} />
           ) : (
