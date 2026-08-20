@@ -117,7 +117,7 @@ const IMPORTANCE_COLORS: Record<TaskImportance, string> = {
 
 const formSchema = z.object({
   name: z.string().min(1, '请输入任务名称').max(50, '名称过长'),
-  description: z.string().max(200, '描述过长').optional(),
+  description: z.string().optional(),
   type: z.enum(['epic', 'daily'] as const),
   difficulty: z.enum(['easy', 'normal', 'hard', 'epic'] as const),
   importance: z.enum(['low', 'medium', 'high', 'urgent'] as const),
