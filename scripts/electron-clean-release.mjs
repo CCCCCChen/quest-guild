@@ -12,12 +12,22 @@
 //      c) 仍失败则告警放行（exit 0），让 electron-builder 自行覆写。
 import fs from 'node:fs';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const electronDir = path.join(__dirname, '..', 'quest-guild-electron');
 // 与 package.json 的 build.directories.output 保持一致
 const outDir = path.join(electronDir, 'out');
+
+// 尽力而为：若有正在运行的绿色版/便携版应用，先结束进程（否则其锁定的
+// app.asar / 目录会让清理与 electron-builder 覆写失败）。找不到进程会报错，忽略即可。
+function killRunningApp() {
+  for (const name of ['悬赏任务公会.exe']) {
+    const r = spawnSync('taskkill', ['/F', '/IM', name], { stdio: 'ignore', windowsHide: true });
+    if (r.status === 0) console.log('已结束正在运行的应用进程: ' + name);
+  }
+}
 
 const delay = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -32,6 +42,7 @@ function tryRenameAside(dir) {
 }
 
 async function clean(maxRetries = 2) {
+  killRunningApp();
   if (!fs.existsSync(outDir)) {
     console.log('out 目录不存在，跳过清理');
     return;

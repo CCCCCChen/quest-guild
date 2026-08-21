@@ -77,6 +77,8 @@ quest-guild-electron/output/
 *.db-wal
 server/backups/
 quest-guild-electron/renderer/app/
+quest-guild-electron/renderer/app.stale-*/
+quest-guild-electron/out.stale-*/
 
 # Logs
 electron-build.log
@@ -85,4 +87,5 @@ electron-build.log
 .workbuddy/
 quest-guild-electron/.electron-cache-fresh/
 quest-guild-electron/out/
+quest-guild-electron/out-*/
 quest-guild-electron/package-lock.json
