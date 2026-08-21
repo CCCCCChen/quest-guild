@@ -16,7 +16,11 @@
     "electron:clean": "node scripts/electron-clean-release.mjs",
     "electron:build": "npm run electron:clean && npm run electron:build:renderer && node scripts/electron-retry-build.mjs",
     "electron:build:win64": "npm run electron:clean && npm run electron:build:renderer && node scripts/electron-retry-build.mjs --win --x64",
-    "electron:build:portable": "npm run electron:clean && npm run electron:build:renderer && node scripts/electron-retry-build.mjs --win portable"
+    "electron:build:portable": "npm run electron:clean && npm run electron:build:renderer && node scripts/electron-retry-build.mjs --win portable",
+    "version:patch": "node scripts/bump-version.mjs patch",
+    "version:minor": "node scripts/bump-version.mjs minor",
+    "version:major": "node scripts/bump-version.mjs major",
+    "electron:release": "npm run version:patch && npm run electron:build:win64"
   },
   "main": "quest-guild-electron/main.cjs",
   "build": {

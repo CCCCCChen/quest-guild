@@ -1,166 +1,59 @@
 # 悬赏任务公会 - Electron 桌面版
 
-RPG游戏风格的目标管理工具，基于 Electron 打包的桌面应用。
+RPG 风格的目标管理工具（Quest Guild），Electron 桌面壳 + React 前端。
 
-## ✨ 功能特性
+> **重要**：本目录只是桌面壳（主进程/预加载/渲染产物/图标）。**依赖、npm 脚本、electron-builder 配置全部在仓库根 `package.json`**，本目录没有 package.json。所有命令在**仓库根目录**执行。
 
-- 🎮 **RPG游戏风格**：深色魔幻主题，金色/紫色配色，符文装饰元素
-- ⚔️ **史诗任务系统**：任务拆解、Boss进度、层级管理
-- 💎 **法力水晶机制**：限制每日注意力任务数量，精力管理
-- 🌳 **技能树系统**：可视化天赋树，技能点亮与强化
-- 🏪 **公会商店**：积分兑换自定义奖励
-- 🪟 **悬浮窗模式**：类歌词悬浮效果，悬停展开操作
-- 💾 **本地数据存储**：加密本地存储，数据安全不丢失
-- 📊 **统计面板**：专注时长、完成数、连续天数等数据
+## 🚀 命令（仓库根目录）
 
-## 🚀 快速开始
+| 命令 | 说明 |
+|------|------|
+| `npm run electron:dev` | 开发运行（加载 `renderer/app` 构建产物） |
+| `npm run electron:build:win64` | 打包 nsis 安装包 + 便携版（x64） |
+| `npm run electron:build:portable` | 仅打包便携单文件 |
+| `npm run electron:release` | 一键发版：patch 升版（git commit + tag）+ 打包 win64 |
 
-### 环境要求
+打包产物在 `quest-guild-electron/out/`：
 
-- Node.js >= 16.0.0
-- npm 或 yarn
-
-### 安装依赖
-
-```bash
-cd quest-guild-electron
-npm install
+```
+out/
+├── 悬赏任务公会 Setup <版本>.exe      # NSIS 安装包（可选目录、桌面/开始菜单快捷方式）
+├── 悬赏任务公会 Setup <版本>.exe.blockmap
+├── 悬赏任务公会-Portable.exe          # 便携单文件
+├── latest.yml                        # 更新描述（未来 electron-updater 用）
+└── win-unpacked/                     # 绿色解包版（悬赏任务公会.exe）
 ```
 
-### 开发运行
+## 🔖 版本号
 
-```bash
-npm start
-```
+发版前用 `npm run version:patch|minor|major` 升版本号（自动改 package.json + commit `chore: release vX.Y.Z` + 打 git tag `vX.Y.Z`），然后 `npm run electron:build:win64`。预览：`node scripts/bump-version.mjs patch --dry`。
 
-### 打包成 exe
-
-```bash
-# 打包安装版 + 便携版
-npm run build:win
-
-# 仅打包64位安装版
-npm run build:win64
-
-# 仅打包便携版
-npm run build:portable
-```
-
-打包完成后，exe 文件在 `dist` 目录中。
-
-## 📁 项目结构
+## 📁 目录结构
 
 ```
 quest-guild-electron/
-├── main.js              # Electron 主进程
-├── preload.js           # 预加载脚本（API 桥接）
-├── package.json         # 项目配置
-├── assets/              # 资源文件
-│   ├── icon.ico         # 应用图标（需自行添加）
-│   └── icon.png         # 托盘图标（需自行添加）
-├── renderer/            # 渲染进程页面
-│   └── float.html       # 悬浮窗页面
-└── dist/                # 打包输出目录
+├── main.cjs              # Electron 主进程（CommonJS，根 type:module 下必须 .cjs）
+├── preload.cjs           # 预加载脚本（API 桥接）
+├── renderer/             # 渲染进程构建产物（scripts/build-renderer.mjs 输出，不入库）
+│   └── app/              #   vite build 产物
+├── assets/               # 应用图标 icon.ico / icon.png（scripts/gen-electron-icon.py 生成）
+├── out/                  # electron-builder 打包输出（不入库）
+├── .electron-cache/      # Electron 二进制缓存（build.electronDownload.cache）
+└── .electron-cache-fresh/# NSIS 工具缓存（ELECTRON_BUILDER_CACHE，已补齐 nsis-3.0.4.1 + nsis-resources-3.4.1）
 ```
 
-## ⚙️ 配置说明
+## ⚙️ 配置
 
-### 修改应用加载地址
-
-在 `main.js` 中修改 `APP_CONFIG.appUrl`：
-
-```javascript
-// 加载在线应用
-appUrl: 'https://your-app-url.com'
-
-// 或者加载本地静态文件
-appUrl: `file://${path.join(__dirname, 'renderer/index.html')}`
-```
-
-### 替换应用图标
-
-1. 准备 `.ico` 格式的图标文件（推荐 256x256）
-2. 放入 `assets/icon.ico`
-3. 准备 `.png` 格式的托盘图标（16x16 或 32x32）
-4. 放入 `assets/icon.png`
-
-### 数据存储
-
-应用数据使用 `electron-store` 加密存储，位置在：
-
-- Windows: `%APPDATA%/quest-guild/quest-guild-data.json`
-
-数据文件已加密，确保用户数据安全。
-
-## 🎯 使用说明
-
-### 主窗口
-
-- 完整功能界面，包含所有模块
-- 关闭按钮默认最小化到悬浮窗，不退出应用
-- 可通过系统托盘或悬浮窗重新打开
-
-### 悬浮窗
-
-- **收起态**：小型悬浮条，显示任务概览
-- **展开态**：鼠标悬停展开，可进行快捷操作
-- **拖拽移动**：按住悬浮条可拖动到任意位置
-- **位置记忆**：自动记住最后位置
-
-### 系统托盘
-
-- 右键托盘图标显示菜单
-- 左键点击切换主窗口显示/隐藏
-- 完全退出应用请通过托盘菜单选择「退出」
-
-## 🔧 高级配置
-
-### 开机自启
-
-取消 `main.js` 末尾以下代码的注释：
-
-```javascript
-app.setLoginItemSettings({
-  openAtLogin: true,
-  path: process.execPath
-});
-```
-
-### 修改悬浮窗尺寸
-
-在 `main.js` 的 `APP_CONFIG` 中调整：
-
-```javascript
-floatWidth: 360,        // 悬浮窗宽度
-floatHeight: 72,        // 收起态高度
-floatExpandedHeight: 500 // 展开态高度
-```
-
-### 自定义主题
-
-修改 `renderer/float.html` 中的 CSS 变量和样式。
-
-## 📝 注意事项
-
-1. **图标文件**：首次打包前请确保添加了 `assets/icon.ico` 和 `assets/icon.png`
-2. **网络依赖**：默认加载在线应用，需要联网；如需离线使用，请导出静态文件
-3. **数据备份**：建议定期通过应用内的导出功能备份数据
-4. **Windows  defender**：首次运行可能被 SmartScreen 拦截，点击「更多信息」→「仍要运行」即可
+- 全部在根 `package.json` 的 `build` 字段：`productName`（悬赏任务公会）、`directories.output`（out/）、`win.target`（nsis + portable）、`nsis`（可选安装目录等）。
+- 主进程 `main.cjs` 不依赖本地 server（前端数据存 localStorage + 云端同步，见根 README）。
 
 ## 🆘 常见问题
 
+**Q: 打包报 `Plugin not found, cannot call UAC::_`？**
+A: NSIS 工具缓存不完整（缺 nsis-resources）。用 `fs.cpSync` 把 electron-builder 下载解压后的临时数字目录复制为 `.electron-cache-fresh/nsis/nsis-resources-3.4.1`（含 UAC.dll）。
+
+**Q: NSIS 缓存目录删不掉/重命名报 Permission denied？**
+A: 本机环境禁止 rename。不要尝试删除，改用复制新目录 + 切换 `ELECTRON_BUILDER_CACHE` 指向。
+
 **Q: 打包后运行白屏？**
-A: 检查 `appUrl` 地址是否正确，确保网络连接正常。
-
-**Q: 悬浮窗不显示？**
-A: 检查系统托盘，应用可能在后台运行，点击托盘图标显示。
-
-**Q: 数据丢失了怎么办？**
-A: 应用有自动备份机制，可在设置页的备份管理中恢复。
-
-**Q: 如何完全退出应用？**
-A: 右键系统托盘图标，选择「退出」。
-
-## 📄 License
-
-MIT License
+A: 确认 `renderer/app/` 存在（`npm run electron:build:renderer`），主进程加载的是本地构建产物而非在线地址。

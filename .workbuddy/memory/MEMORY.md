@@ -13,6 +13,8 @@
 - **AI 桥接**：**只解锁 `cap-creation-ai-basic`**（父节点 `cap-creation-ai` 保持 locked，符合用户决策）。
 - **法力水晶**：改名「专注槽」（静态容量，语义诚实）。
 - **Electron 已并入根 package.json（单一事实源，2026-08-20）**：`main.cjs`/`preload.cjs` + `renderer/` 构建产物留在 `quest-guild-electron/`，但依赖/脚本/`build` 配置全在根 `package.json`（无子目录 package.json）；prebuild/retry-build 提取为 `scripts/electron-clean-release.mjs` 与 `electron-retry-build.mjs`。根 `type:module` 下主进程须用 `.cjs`（否则 require 报 ESM 错）。asar 只读随 Phase 5 做（db 迁 userData），近期不发安装包则暂缓。
+- **Electron win64 打包已跑通（2026-08-21）**：产物在 `quest-guild-electron/out/`（Setup exe + Portable exe + win-unpacked）。环境禁止 rename → NSIS 缓存修复用 `fs.cpSync` 复制下载临时目录（`nsis-3.0.4.1` + `nsis-resources-3.4.1` 含 UAC.dll）；`ELECTRON_BUILDER_CACHE` 指向 `.electron-cache-fresh`（retry-build.mjs 已固化），Electron 二进制仍在 `.electron-cache`。图标 `quest-guild-electron/assets/icon.ico`（`scripts/gen-electron-icon.py` 生成）。遗留待删：`quest-guild-electron/server/`（main.cjs 不引用）、两个旧 .bat、旧 `release/`/`dist/` 目录。
+- **版本号流程（方案 1，2026-08-21 落地）**：`scripts/bump-version.mjs`（patch/minor/major + `--dry` 预览，调 `npm version` 自动 commit + tag `vX.Y.Z`）；npm scripts：`version:patch`/`version:minor`/`version:major`/`electron:release`（=patch 升版 + 打包 win64）。发版顺序：提交代码 → 升版 → `electron:build:win64`。electron-updater 所需 `latest.yml` 已随打包产出。
 
 ## 阶段状态（2026-08-18）
 - ✅ **Phase 0**（地基）：完成。constants.js + 难度校验 + 本地公式统一 + NaN 杜绝。

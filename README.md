@@ -107,3 +107,43 @@ import configData from "@shared/static/config.json";
 | 图表色 | `bg-chart-1` ~ `bg-chart-5` | `--chart-1` ~ `--chart-5` |
 
 HSL 格式使用**空格分隔**：`--primary: hsl(150 60% 40%);`
+
+---
+
+## Electron 桌面端（打包 / 发版）
+
+桌面壳为 `quest-guild-electron/`（`main.cjs` + `preload.cjs` + `renderer/` 构建产物 + `assets/` 图标），
+但**依赖、脚本、electron-builder 配置全部在根 `package.json`**（单一事实源，无子目录 package.json）。
+
+### 常用命令（根目录执行）
+
+| 命令 | 说明 |
+|------|------|
+| `npm run electron:dev` | 开发运行（加载本地构建产物） |
+| `npm run electron:build:win64` | 打包 nsis 安装包 + 便携版（x64） |
+| `npm run electron:build:portable` | 仅打包便携单文件 |
+| `npm run version:patch` / `version:minor` / `version:major` | 升版本号 + git commit + 打 tag `vX.Y.Z` |
+| `npm run electron:release` | **一键发版** = patch 升版 + 打包 win64 |
+
+### 发版流程（方案 1：npm version + git tag）
+
+1. 代码改动完成后先提交
+2. 按改动规模升版：`npm run version:patch`（修 bug）/ `version:minor`（新功能）/ `version:major`（大版本）
+   —— 自动改 `package.json`/`package-lock.json`、commit `chore: release vX.Y.Z`、打 tag
+3. 打包：`npm run electron:build:win64`
+4. 产物在 `quest-guild-electron/out/`：`悬赏任务公会 Setup <版本>.exe` + `悬赏任务公会-Portable.exe` + `win-unpacked/` 绿色版
+
+也可以跳过第 2 步单独执行 `npm run electron:release`（默认 patch）。
+预览变更结果而不落盘：`node scripts/bump-version.mjs patch --dry`
+
+### 打包注意事项（本机踩坑记录）
+
+- **缓存目录**：`ELECTRON_BUILDER_CACHE` 指向 `quest-guild-electron/.electron-cache-fresh`（nsis 工具缓存，
+  `scripts/electron-retry-build.mjs` 已固化）；Electron 二进制仍在 `.electron-cache`（`build.electronDownload.cache`）。
+- **环境禁止 rename**：NSIS 工具缓存若破损，删除/重命名会被拒。修复方法：用 `fs.cpSync` 把 electron-builder
+  下载解压后的临时数字目录**复制**为 `nsis-3.0.4.1` / `nsis-resources-3.4.1`（后者含 UAC.dll，缺失报
+  `Plugin not found, cannot call UAC::_`）。
+- **产物名**：中间 nsis 7z 用 `package.json` 的 `name`（miaoda-vite-react-app），最终 exe 用 `productName`（悬赏任务公会），属正常现象。
+- **图标**：`quest-guild-electron/assets/icon.ico`（可用 `scripts/gen-electron-icon.py` 重新生成）。
+
+详见 `quest-guild-electron/README.md`。
