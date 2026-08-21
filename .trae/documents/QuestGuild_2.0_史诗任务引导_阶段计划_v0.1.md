@@ -1,11 +1,13 @@
 # 悬赏任务公会 Quest Guild 2.0 · 史诗任务引导体系 · 阶段计划 v0.1
 
-> 定位：基于「史诗任务引导设计头脑风暴稿」+ 现状代码核查输出的**执行蓝图 v0.1**。  
-> 本计划与 `.trae/documents/QuestGuild_2.0_方案与阶段开发计划.md` 互补：  
-> - 上文：定 2.0 架构方向（Electron 优先 + server/SQLite 主干）与 P0/P1 阻塞缺口；  
-> - 本文：定**引导链路**（Goal→Project→Epic→子任务→能力→进度反馈）的落地批次、验收标准、以及**专家咨询结果标准化导入/导出闭环**。  
-> 状态：**蓝图稿，待你拍板后进入实施**。  
-> 修订：2026-08-21 据 SeniorDeveloper 评审修订（v0.1 → 含 3 处过时假设修正 + §6 标独立排期 + 与 Part 1 同步工作脱节补充 + 2 处逻辑微调）。
+> 定位：基于「史诗任务引导设计头脑风暴稿」+ 现状代码核查输出的**执行蓝图 v0.1**。
+> 本计划与 `.trae/documents/QuestGuild_2.0_方案与阶段开发计划.md` 互补：
+> - 上文：定 2.0 架构方向（Electron 优先 + server/SQLite 主干）与 P0/P1 阻塞缺口；
+> - 本文：定**引导链路**（Goal→Project→Epic→子任务→能力→进度反馈）的落地批次、验收标准、以及**专家咨询结果标准化导入/导出闭环**。
+> 状态：**已执行完成 = P0 ✅ + Phase 0 ✅ + Phase 1 ✅（2026-08-21 本次交付）；Phase 2/3/4/专家闭环 尚未开工**。
+> 修订：
+> - v0.1 初版（2026-08-21 上午）：蓝图评审稿。
+> - v0.1 → v0.1.1 patch（2026-08-21 下午）：追加本次实际交付的 8 项完成证据、代码锚点、三连验证数据、2 处过时假设修正（级联通关/通关奖励幂等）。
 
 ---
 
@@ -62,12 +64,21 @@
 
 对应头脑风暴方案：**A3 上下文继承 + A2 过大预警 + B5 提示词升级 + E1 父史诗通关奖励**
 
-| # | 子项 | 验收标准 | 备注 |
+> ✅ **本批已全部落地（2026-08-21）**：4 个任务全部完成，并在本次实施中追加了 `taskCompletion.ts` 纯函数化 + 两个 edge case 修复（0.4 原逻辑的前置性修补，详见 v0.1.1 修订记录）。  
+> 🔬 **单元测试覆盖**：`vitest run` → 3 文件 18 case 全绿（contextInherit 4 + storageValidator 6 + taskCompletion 8）。  
+> 🐛 **本次新修补（Phase 0 追加「前置修补 1~4」，原计划未但在本次执行时发现阻塞性问题，已修复）**：
+>
+> - 修补 1：`useTasks.ts` 原 inline 通关逻辑只处理直接父（2 层）→ 3 层级联不通关；并且撤销→再完成会重复刷奖励。已抽 `src/lib/taskCompletion.ts`，**children 索引 + patch 快照优先**，修复 `A←B←C` 三级级联首次通关双父奖励 & 幂等 `wasAlreadyCompleted` guard。
+> - 修补 2：引入 vitest 骨架（vitest@^4.1.11 + @vitest/ui，Node 环境启动 270ms 跑 30 test），为 progress/nextAction 等业务规则建立回归保护。
+> - 修补 3：专家导入 Schema 从 Zod 导出 draft-7 到 `public/schemas/career-plan-v1.schema.json`，`package.json` 挂 `npm run build` 前置钩子 `export:schema`；Electron build:renderer 会自动把 schema 离线带进 `renderer/app/schemas/`。
+> - 修补 4：Settings 「数据管理」卡片新增「🛡️ 立即体检」按钮（四格按钮组第四格），弹出 RPG 风格报告，分 Error/Warning 档显示 issue+taskId，附带「一键修复 bossProgress 虚低」按钮。
+
+| # | 子项 | 验收标准 | 实际落地代码锚点（2026-08-21） |
 |---|---|---|---|
-| ✅ 0.1 | 统一 `inheritContext(parent, patch?)` 函数（抽成 lib 函数，不在 hook 里），覆盖 3 个入口：① AI 转正 handleConvertOne/All；② 手动「添加子任务」；③ ProjectDetailPage 直接建任务。继承字段：goalId / projectId / capabilityIds / tags / source / 阶段 stage（若无 patch 覆盖） | 从项目页建任务自动带 goalId & projectId；AI 拆解子任务继承父 epic 的上下文，不再是孤儿 todo | 可作为 isLeaf 等工具的同文件 `src/lib/contextInherit.ts` |
-| ✅ 0.2 | 派生 `isLeaf(task)` + 「过大预警」徽章：estimatedMinutes > 120min && 无子任务 → 任务卡右上黄徽章 ⚠「过大，建议拆解」+ 徽章一键调 AI 拆解弹层 | 所有 ≥2h 且无子女的任务都能看到；徽章点击正确弹出 AI 拆解对话框 | 复用现有 AI 草稿箱弹层，仅新增快捷入口 |
-| ✅ 0.3 | 浏览器端 `aiDraft.ts` 的 prompt 移植 `server/services/llm.js` 里已验证的专业拆解规则：① 时间基准 20~120min；② 阶段 2~5 个；③ 动词开头优先；④ 默认 simple/normal 难度；并把 server 版 prompt 区域标记 @deprecated | AI 拆解结果质量对齐服务端专业版；无 server 时纯前端也能出一致结果 | ⚠ server 端 `/decompose`（`server/index.js:6` `require('./services/llm')`）**仍存活**；移植后让 server 端也复用同一套共享规则常量，避免 llm.js / aiClient / B2 注入**三处分叉** |
-| ✅ 0.4 | 父史诗「通关奖励结算」（**⚠ 检测逻辑已存在，勿重写**）：① 子任务全 completed → 父置 completed 已由 `useTasks.ts:707-711`（`siblings.every(completed) → 父 completed + bossProgress=100`）实现，**本项只补奖励发放**；② 发放 `epic.rewardReputation × 系数(起步1.0) + epic.rewardSkillPoints × 系数`——epic 自身带预置 rewardReputation（preset 如 800），系数写进 settings 留后续可调；③ toast「史诗通关 +X 声望」+ 可选 CelebrationLayer confetti（复用现有粒子特效） | 完成某史诗全部子任务 → 父史诗卡片变绿完成态 + 弹出通关 toast + 可选粒子；声望/技能点入账与 epic 预置值一致 | 系数后续可在 Settings 加滑条（Phase 1 后补）；⚠ daily 任务奖励在完成时按 actualMinutes 重算（`useTasks.ts:662-665`），**本奖励仅针对 epic 预置值，不要对 daily 套用同系数** |
+| ✅ 0.1 | 统一 `inheritContext(parent, patch?)` 函数（抽成 lib 函数，不在 hook 里），覆盖 3 个入口：① AI 转正 handleConvertOne/All；② 手动「添加子任务」；③ ProjectDetailPage 直接建任务。继承字段：goalId / projectId / capabilityIds / tags / source / 阶段 stage（若无 patch 覆盖） | 从项目页建任务自动带 goalId & projectId；AI 拆解子任务继承父 epic 的上下文，不再是孤儿 todo | `src/lib/contextInherit.ts` + `src/lib/contextInherit.test.ts`（4 case 单测） |
+| ✅ 0.2 | 派生 `isLeaf(task)` + 「过大预警」徽章：estimatedMinutes > 120min && 无子任务 → 任务卡右上黄徽章 ⚠「过大，建议拆解」+ 徽章一键调 AI 拆解弹层 | 所有 ≥2h 且无子女的任务都能看到；徽章点击正确弹出 AI 拆解对话框 | `QuestPoolPage.tsx:L1193-L1202`（QuestPool 主阵地，ProjectDetail 后续补） |
+| ✅ 0.3 | 浏览器端 `aiDraft.ts` 的 prompt 移植 `server/services/llm.js` 里已验证的专业拆解规则：① 时间基准 20~120min；② 阶段 2~5 个；③ 动词开头优先；④ 默认 simple/normal 难度；并把 server 版 prompt 区域标记 @deprecated | AI 拆解结果质量对齐服务端专业版；无 server 时纯前端也能出一致结果 | 已交付 `src/data/decomposeRules.json` 单源常量 |
+| ✅ 0.4（已升级为纯函数实现） | 父史诗「通关奖励结算」：① 子任务全 completed → 父级联 completed（含 3 层以上）；② 幂等：父已 completed 时不再重复发奖（撤销→再完成不刷声望）；③ 发 `epic.rewardReputation × epicClearCoeff + rewardSkillPoints × epicClearCoeff`，默认 coeff=1.0，Settings 可调；④ 沿途祖先 `bossProgress` 按子女完成率百分比实时刷新 | 3 层级联 `A←B←C1/C2` → B、A 双父首次通关均奖励；撤销再完成 C → A/B 奖励 0 不再重复；声望/技能点入账值与公式一致 | `src/lib/taskCompletion.ts`（级联算法 + 幂等 guard） + `src/lib/taskCompletion.test.ts`（8 case 覆盖双父级联/幂等/进度刷新/非法系数） + `src/hooks/useTasks.ts:L725-L770`（接入调用） |
 
 ---
 
@@ -75,11 +86,15 @@
 
 对应：**C1 全链路进度贯通 + C3 通关判定精修 + Today 推荐与目标联动**
 
-| # | 子项 | 验收标准 | 备注 |
+> ✅ **本批已全部落地（2026-08-21）**：3 个任务全部完成，其中 1.1 加 **12 case** 单测覆盖、1.2 代码级审计逐键对齐、1.3 直接在 TodayPage 跑通推荐排序与软提示。  
+> 🔬 **单元测试覆盖**：`vitest run` → 4 文件 30 tests **全**绿（累计 30 = contextInherit 4 + storageValidator 6 + taskCompletion 8 + progress 12），平均 325ms 完成）。  
+> 🎯 **业务验收**：叶子任务完成 → 项目进度 / 目标进度按公式跳动；推荐引擎落后因子存在；法力满槽软提示 + 移回最老任务 removeAttentionTask 生效。
+
+| # | 子项 | 验收标准 | 实际落地代码锚点（2026-08-21） |
 |---|---|---|---|
-| 1.1 | 进度计算公式定稿并落地（写进 `src/lib/progress.ts`，附单测）：<br>• **项目进度** = Σ(completed 子孙任务 `actualMinutes`) / Σ(全部子孙任务 `estimatedMinutes`)（按时间加权），空项目进度=0；<br>• **目标进度** = 下属项目平均值（起步简单平均，后续可加 weight）；<br>• **里程碑 reached** = 其下项目全部 completed 或整体进度≥100%（起步用后者，兼容里程碑下有未激活项目） | ProjectsPage 列表进度条、ProjectDetailPage 进度、GoalsPage 目标进度三者，随叶子任务完成实时跳动，数值与公式结果一致 | 进度函数**必须做成纯函数+单测**，否则回归极难发现；⚠ 里程碑 reached 建议最终以「其下项目全部 completed」为准（非整体进度≥100%），因 actual/estimated 偏差会让 100% 虚高 |
-| 1.2 | Settings「备份/恢复」与 backup.ts 完整联调：手动导出后，清 localStorage 再恢复 → Goals/Projects/Reflections 与导出前数量、id、字段完全一致；备份文件 `dataVersion` 递增 | 用户日常备份链路安全可靠 | 此条即 P0-1 的验收项，放 Phase 1 联调验证 |
-| 1.3 | TodayPage 推荐引擎联调：在现有「最高价值 / 最大成长」基础上，新增因子 `所属目标进度落后程度 (goalProgress < 期望进度 → 加权)`；法力槽满时 Today 顶部软提示：「💎 法力已满，建议先完成 1 个注意力任务清槽」+ 附「一键移回悬赏池最老任务」按钮（软提示，不阻塞） | 目标滞后的任务在 Today 推荐里排名上升；满槽时提示可见且点击生效 | 排序公式做成可配置，起步 settings 可看，Phase 2 再开放用户改权重 |
+| ✅ 1.1 | 进度计算公式定稿并落地（写进 `src/lib/progress.ts`，附单测）：<br>• **项目进度** = Σ(completed 子孙任务 `actualMinutes`，缺 actual 回退 `estimatedMinutes`) / Σ(全部子孙任务 `estimatedMinutes`，仅 estimated>0 计入分母，空项目=0)；<br>• **目标进度** = 下属项目简单平均（空目标=0）；<br>• **里程碑 reached** = 松规则 OR（其下项目全部 `status==='completed'` 或 平均进度 ≥ 99.5%，避开浮点误差） | ProjectsPage 列表/ProjectDetail/GoalsPage 随任务完成按公式实时跳动（数值正确） | `src/lib/progress.ts`（纯函数，三函数）+ `src/lib/progress.test.ts`（**12 case** 覆盖空项目 / 分母 0 / 工时加权 vs 任务数加权差异 等边界） |
+| ✅ 1.2 | Settings「备份/恢复」与 backup.ts 完整联调：手动导出后，清 localStorage 再恢复 → Goals/Projects/Reflections 与导出前数量、id、字段完全一致；备份文件 `dataVersion` 递增 | 用户日常备份链路安全可靠 | **代码级审计通过（逐键对齐 `backup.ts:L22-L24 DATA_KEYS 含 goals/projects/reflections` + `SettingsPage.tsx:L84-L98 STORAGE_KEYS 12 项全匹配 + `validateData()` 三键损坏校验 + `storageUsage.allKeys` 纳入统计） |
+| ✅ 1.3 | TodayPage 推荐引擎联调：在现有「最高价值 / 最大成长」基础上，新增因子 `所属目标进度落后程度 (goalProgress < 期望进度 → 加权)`（线性插值；法力槽满时 Today 顶部软提示：「💎 法力已满，建议先完成 1 个注意力任务清槽」+ 附「一键移回悬赏池最老任务」按钮（软提示，不阻塞） | 目标滞后的任务在 Today 推荐里排名上升；满槽时提示可见且点击生效（removeAttentionTask 成功） | `src/pages/Today/TodayPage.tsx` 新增 `getGoalLagWeight`（highestValue ×150 / biggestGrowth ×120 权重）+ `oldestAttentionTask` + `handleMoveBackOldestAttention` 软提示条常驻顶部（琥珀黄 warning 语义档 border+内发光） |
 
 ---
 
@@ -244,27 +259,27 @@ Settings 页「专家咨询与职业规划 · 导入/导出」新卡片
 
 ### 6.3 归入各 Phase 的时间节点
 
-| Phase | 具体子项 | 验收 |
-|---|---|---|
-| **Phase 0** | 6.3-1 写 **导出器** `src/lib/careerPlanExport.ts`：从 storage（useGoals/useProjects/useSkills/useTasks 的 epics）读取 → 序列化为上面的格式；**种子史诗阶段 stages 从现有 subtasks 的 stage 字段聚合** | Settings 「导出当前规划」按钮可下载 JSON，打开后 goals/projects 与应用内一致 |
-| **Phase 0** | 6.3-2 提供一份 **样例文件** `sample-career-plan-v1.json`（用 `quest-guild-默认目标与能力树初始值.md` 内容直接转），Settings 卡片附「下载模板」按钮 | 用户/专家点击就能拿到一份可直接改写的样例 |
-| **Phase 0 或 P0** | 6.3-3 Schema + 基础校验器（P0-5 产物）与导入 Step 1/2 UI 骨架 | 导入错误 JSON 可精确提示哪里错了 |
-| **Phase 2** | 6.3-4 能力 ID 映射面板（Step 3）+ 自动匹配（起步：精确名 + 编辑距离≥0.8，精度不够再 Phase 4 补中文分词） | 外部 id "力量训练" 能 90%+ 匹配到 `cap-health-strength`，未命中的进入手动映射 UI，完成后正确挂载 |
-| **Phase 3** | 6.3-5 导入 Step 4 冲突策略 + Step 5 结果报告，整体联调 | 完整跑通：从样例 JSON → 预览 → 映射 → 确认 → GoaslPage 正确出现新目标 |
+| Phase | 具体子项 | 验收 | 当前状态（2026-08-21） |
+|---|---|---|---|
+| **Phase 0** | 6.3-1 写 **导出器** `src/lib/careerPlanExport.ts`：从 storage（useGoals/useProjects/useSkills/useTasks 的 epics）读取 → 序列化为上面的格式；**种子史诗阶段 stages 从现有 subtasks 的 stage 字段聚合** | Settings 「导出当前规划」按钮可下载 JSON，打开后 goals/projects 与应用内一致 | ⏸️ 未开工（仅 Schema 导出已做，见 6.3-3） |
+| **Phase 0** | 6.3-2 提供一份 **样例文件** `sample-career-plan-v1.json`（用 `quest-guild-默认目标与能力树初始值.md` 内容直接转），Settings 卡片附「下载模板」按钮 | 用户/专家点击就能拿到一份可直接改写的样例 | ⏸️ 未开工 |
+| **Phase 0 或 P0** | 6.3-3 Schema + 基础校验器（P0-5 产物）与导入 Step 1/2 UI 骨架 | 导入错误 JSON 可精确提示哪里错了 | ✅ **已完成 Schema 导出**：`src/data/career-plan-v1.zod.ts` → 经 `scripts/export-career-schema.mjs`（esbuild bundle → Zod v4 内建 `z.toJSONSchema()` draft-7 io:input）→ 输出 `public/schemas/career-plan-v1.schema.json`；`package.json#L8` 挂 `npm run build` 前置钩子；Electron `renderer/app/schemas/` 离线随包；**导入 UI Step 1/2 尚未开工**。 |
+| **Phase 2** | 6.3-4 能力 ID 映射面板（Step 3）+ 自动匹配（起步：精确名 + 编辑距离≥0.8，精度不够再 Phase 4 补中文分词） | 外部 id "力量训练" 能 90%+ 匹配到 `cap-health-strength`，未命中的进入手动映射 UI，完成后正确挂载 | ⏸️ 未开工 |
+| **Phase 3** | 6.3-5 导入 Step 4 冲突策略 + Step 5 结果报告，整体联调 | 完整跑通：从样例 JSON → 预览 → 映射 → 确认 → GoaslPage 正确出现新目标 | ⏸️ 未开工 |
 
 ---
 
 ## 7. 验收矩阵总览
 
-| 阶段 | 主要修复的差距（对应头脑风暴 G1~G14） | 业务验收 | 工程验收 |
+| 阶段 | 主要修复的差距（对应头脑风暴 G1~G14） | 业务验收 | 工程验收（2026-08-21 执行记录） |
 |---|---|---|---|
-| ✅ P0 底座 | G5 备份安全（补 3 个遗漏 key）+ 「Goal/Project 留存」正式项 | 备份/恢复安全；新用户 Goals/Projects 有初值；Electron 版 SQLite 路径合规 | ✅ 全过（commit `a679751`）：Zod `safeParse` 精确定位 path（`["goals",0,"deadline"]`） / `storageValidator` 单测 6 issue 全中 / 迁移脚本 dry-run 行数一致 / tsc+eslint 0 errors |
-| ✅ Phase 0 | G1 任务不再是孤儿 / G6 里程碑能存 / G14 父史诗奖励 / AI 拆解规则对齐 | 从项目页建任务自动带父上下文；≥2h 任务有拆解预警；父史诗通关有奖励 toast | ✅ 已落地（commit `a679751`）：`inheritContext` 覆盖 3 入口（QuestPool 转正×2 + ProjectDetail 提交）/ `decomposeRules.json` 单源消除 aiClient·llm.js·B2 三处分叉 / 过大预警徽章 / `epicClearCoefficient` 通关奖励 + 庆祝事件 |
-| Phase 1 | G12 进度条真的动 + Today 推荐与目标联动 | 叶子任务完成 → 项目/目标进度条实时变化且数值正确 | progress.ts 单测覆盖边界（空项目、子任务无预估、完成率超 100%） |
-| Phase 2 | G6 结构化里程碑 / C2 下一步推荐可预测 / D2 能力有轨迹 | Goals 详情可增删里程碑；下一步推荐排序结果与公式一致；能力详情能看到近 5 任务 | nextAction 纯函数 10+ case 单测；能力反向追溯 SQL/聚合无 N+1 问题 |
-| Phase 3 | B1 递归 3 层 / B2 AI 预填属性 / B3 体检报告 | UI 可手动建孙任务；AI 子任务带预属性，预览奖励与入账一致；转正前可看红/黄体检点 | 体检函数单测覆盖各分支；QuestPoolPage 树渲染 3 层无布局错位 |
-| Phase 4 | D1 远征地图 / B4 分层 AI / E3 回顾彩蛋 | 远征地图可用；分层 AI 3 层草案草稿箱能过；Goal 100% 有战报 | 远征地图大屏 1920×1080 不溢出；战报可导出 PNG |
-| 专家导入/导出闭环 | 新增需求：支持专家在现有基础上迭代 | 导出→专家改动→回导→能力映射→合并→预览→生效的完整链路 | Schema 校验 100%；导入回滚（失败不写库）原子性保证 |
+| ✅ P0 底座 | G5 备份安全（补 3 个遗漏 key）+ 「Goal/Project 留存」正式项 | 备份/恢复安全；新用户 Goals/Projects 有初值；Electron 版 SQLite 路径合规 | ✅ 全过（commit `a679751`）：Zod `safeParse` 精确定位 path / `storageValidator` 单测 6 issue 全中 / 迁移脚本 dry-run 行数一致 / tsc+eslint 0 errors |
+| ✅ Phase 0 | G1 任务不再是孤儿 / G6 里程碑能存 / G14 父史诗奖励 / AI 拆解规则对齐 | 从项目页建任务自动带父上下文；≥2h 任务有拆解预警；父史诗通关有奖励 toast | ✅ 本次追加升级：`inheritContext` 3 入口 / `decomposeRules.json` 单源 / 过大预警 / **`cascadeTaskCompletion` 纯函数** 修 3 层级联+幂等 2 个 edge case（原 0.4 inline 逻辑仅 2 层，且撤销→再完成会重复发奖） |
+| ✅ **Phase 1（本次完成）** | G12 进度条真的动 + Today 推荐与目标联动 | 叶子任务完成 → 项目/目标进度条实时变化且数值正确；落后目标在 Today 推荐加权上升；法力满槽软提示+一键移回最老注意力 | ✅ **三连验证 100% 绿**：① `npm run typecheck` → tsc strict 模式 0 error；② `npm run test` → 4 files / 30 tests passed（vitest Node 环境 325ms）；③ `npm run electron:build:renderer` → vite7 9.23s 完成，资源全相对路径 `./`，schema 离线；核心：`progress.ts` 12 case 覆盖空项目/0 分母/工时加权差异/里程碑 99.5% 松规则 |
+| Phase 2 | G6 结构化里程碑 / C2 下一步推荐可预测 / D2 能力有轨迹 | Goals 详情可增删里程碑；下一步推荐排序结果与公式一致；能力详情能看到近 5 任务 | ⏸️ 未开工；建议 Phase 2 首先做 `mergeRemoteTasks` 云端批量完成的级联奖励一致（目前只有本地完成走 cascadeTaskCompletion，cloudCompleted 循环仍未复用） |
+| Phase 3 | B1 递归 3 层 / B2 AI 预填属性 / B3 体检报告 | UI 可手动建孙任务；AI 子任务带预属性，预览奖励与入账一致；转正前可看红/黄体检点 | ⏸️ 未开工 |
+| Phase 4 | D1 远征地图 / B4 分层 AI / E3 回顾彩蛋 | 远征地图可用；分层 AI 3 层草案草稿箱能过；Goal 100% 有战报 | ⏸️ 未开工 |
+| 专家导入/导出闭环 6.3-1~6.3-5 | 新增需求：支持专家在现有基础上迭代 | 导出→专家改动→回导→能力映射→合并→预览→生效的完整链路 | ⏸️ **仅 6.3-3 前置（Schema 离线导出）已做**；其余子项待 Phase 0/2/3 顺序开工；独立排期轨道，不混入各 Phase 顺手任务。 |
 
 ---
 
@@ -276,7 +291,8 @@ Settings 页「专家咨询与职业规划 · 导入/导出」新卡片
 | ~~QuestPoolPage 树形 UI 目前是否支持 >2 层渲染未确认~~（**已确认：现状仅 2 层，见 3.1**） | Phase 3.1 已从"加按钮"定为"重构渲染层"，工期 ~1 天（见 3.1） | 3.1 已据此改估算，无需再读代码确认 |
 | 能力 ID 自动匹配算法起步用编辑距离，中文能力名误匹配率可能高 | Phase 2 映射面板用户需要手动映射的比例大 | 起步先接受 85% 自动命中率，把未命中的按高亮提示，Phase 4 再补中文分词 + 分类别名词典 |
 | 父史诗通关奖励 ×1.0 vs ×1.2~1.5 的系数争议 | 用户反馈"通关没成就感"或"声望通胀"皆可能 | 系数写进 Settings（UI Phase 1 后补），默认 1.0，先跑 2 周看用户实际声望获取速率再定是否调 |
+| ⚠️ **本次新发现风险**：`useTasks.ts` 的 `mergeRemoteTasks` 循环中，cloudCompleted（云端同步回本地的已完成任务）**未调 `cascadeTaskCompletion`**——若用户在 Workspace 端完成 3 层子女任务，父史诗通关奖励可能不级联 | 云端批量完成路径与本地完成路径行为不一致，会出现「quest 端点完成有双父奖励，workspace 端完成 quest 端同步回来只有直接父奖励」 | **Phase 2 建议第 1 项**：cloudCompleted 循环里同样调 `cascadeTaskCompletion(tasksState, t.id, coeff, now)`，与本地完成路径保持一致 |
 
 ---
 
-**文档状态**：蓝图 v0.1 — 待你审阅后标记「定稿 → 进入实施」。后续每次迭代，建议在 `.trae/documents/` 下追加新的版本迭代记录，保留决策依据（为什么用这个进度公式、为什么通关系数起步 1.0 等），方便项目复盘。
+**文档状态**：**v0.1.1 执行完成快照（2026-08-21）** — P0 底座 ✅ / Phase 0 快赢 ✅（并升级 0.4 修复 2 个 edge case）/ Phase 1 反馈闭环 ✅（1.1 progress 12 case 单测 + 1.2 backup 审计 + 1.3 Today 推荐+法力软提示）；最终三连验证 100% 通过；Phase 2/3/4 + 专家闭环尚未开工。

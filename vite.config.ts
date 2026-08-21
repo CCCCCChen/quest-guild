@@ -18,4 +18,10 @@ export default defineConfig({
       '/api': 'http://localhost:3001',
     },
   },
+  test: {
+    globals: true,
+    environment: 'node',
+    include: ['src/**/*.{test,spec}.{ts,tsx,js,mjs}'],
+    css: false,
+  },
 })

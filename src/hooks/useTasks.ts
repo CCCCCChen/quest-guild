@@ -6,6 +6,7 @@ import { SAMPLE_TASKS } from '@/data/sampleTasks';
 import { playSound } from '@/lib/sound';
 import { computeStreak, computeTodayReputation } from '@/lib/streak';
 import { computeReputation, computeSkillPoints } from '@/lib/economy';
+import { cascadeTaskCompletion } from '@/lib/taskCompletion';
 import { store, subscribeStorageChange } from '@/lib/storage';
 import { appLogger } from '@/lib/runtime';
 import { tasksApi } from '@/api';
@@ -721,52 +722,51 @@ export function useTasks() {
         /* 事件派发失败不影响完成主流程 */
       }
 
-      // 史诗任务：检查子任务
-      if (task.parentId) {
-        const siblings = tasksState.filter((t) => t.parentId === task.parentId && t.id !== taskId);
-        const allDone = siblings.every((t) => t.status === 'completed');
-        if (allDone) {
-          const parent = tasksState.find((t) => t.id === task.parentId);
-          tasksState = tasksState.map((t) =>
-            t.id === task.parentId
-              ? { ...t, status: 'completed', bossProgress: 100, completedAt: Date.now(), updatedAt: Date.now() }
-              : t,
+      // ========== 级联：祖先 bossProgress 更新 + 史诗通关（幂等+向上递归）==========
+      // 注：cascadeTaskCompletion 内部已处理两件关键事：
+      //   1) 父已 completed 时不再重复发奖励（幂等，__firstTimeCleared 仅首次 true）
+      //   2) 子通关后继续向上检查父的父（3 层嵌套级联）
+      const now = Date.now();
+      const coeff = readEpicClearCoeff();
+      const { patches, bonuses } = cascadeTaskCompletion(tasksState, taskId, coeff, now);
+      if (patches.length) {
+        const patchMap = new Map(patches.map((p) => [p.id, p]));
+        tasksState = tasksState.map((t) => {
+          const p = patchMap.get(t.id);
+          if (!p) return t;
+          const { __firstTimeCleared, ...safe } = p as typeof p & { __firstTimeCleared?: boolean };
+          return { ...t, ...safe } as IQuestTask;
+        });
+        // 脏标记：沿途祖先都已改（bossProgress/status/completedAt）
+        for (const p of patches) syncState.markTaskDirty(p.id);
+      }
+      if (bonuses.length) {
+        const repSum = bonuses.reduce((s, b) => s + b.rep, 0);
+        const spSum = bonuses.reduce((s, b) => s + b.sp, 0);
+        if (repSum > 0) addReputationSync(repSum);
+        if (spSum > 0) addSkillPointsSync(spSum);
+        syncState.markMetaDirty();
+        // 每个通关父任务各自派发 toast + celebrate（多级联动时，A→B→C 通关会依次跳 1~N 条 toast，用户能感知到级联奖励）
+        for (const b of bonuses) {
+          toast.success(
+            `🏆 史诗通关！「${b.parentName}」奖励 ${b.rep} 声望${b.sp > 0 ? ` + ${b.sp} 能力点` : ''}`,
           );
-          // 史诗通关奖励：检测逻辑（siblings.every → 父 completed）已存在，此处只补奖励发放。
-          // 按父任务预置 rewardReputation / rewardSkillPoints × 系数（默认 1.0，可调），结算权威在 quest 端。
-          if (parent) {
-            const coeff = readEpicClearCoeff();
-            const bonusRep = Math.round((parent.rewardReputation || 0) * coeff);
-            const bonusSp = Math.round((parent.rewardSkillPoints || 0) * coeff);
-            if (bonusRep > 0) addReputationSync(bonusRep);
-            if (bonusSp > 0) addSkillPointsSync(bonusSp);
-            toast.success(
-              `🏆 史诗通关！「${parent.name}」奖励 ${bonusRep} 声望${bonusSp > 0 ? ` + ${bonusSp} 能力点` : ''}`,
+          try {
+            window.dispatchEvent(
+              new CustomEvent('quest:celebrate', {
+                detail: {
+                  taskName: b.parentName,
+                  difficulty: b.difficulty,
+                  reputation: b.rep,
+                  skillPoints: b.sp,
+                  skillId: b.relatedSkillId,
+                  epicClear: true,
+                },
+              }),
             );
-            try {
-              window.dispatchEvent(
-                new CustomEvent('quest:celebrate', {
-                  detail: {
-                    taskName: parent.name,
-                    difficulty: 'epic',
-                    reputation: bonusRep,
-                    skillPoints: bonusSp,
-                    skillId: parent.relatedSkillId,
-                    epicClear: true,
-                  },
-                }),
-              );
-            } catch {
-              /* 事件派发失败不影响主流程 */
-            }
+          } catch {
+            /* ignore */
           }
-        } else {
-          const total = siblings.length + 1;
-          const done = siblings.filter((t) => t.status === 'completed').length + 1;
-          const progress = Math.round((done / total) * 100);
-          tasksState = tasksState.map((t) =>
-            t.id === task.parentId ? { ...t, bossProgress: progress, updatedAt: Date.now() } : t,
-          );
         }
       }
 

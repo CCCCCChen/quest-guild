@@ -29,6 +29,7 @@ import {
   FileSpreadsheet,
   Calendar,
   Zap,
+  Wrench,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -53,6 +54,10 @@ import {
 } from '@/components/ui/alert-dialog';
 import { useSettings } from '@/hooks/useSettings';
 import { useSync } from '@/hooks/useSync';
+import { useTasks } from '@/hooks/useTasks';
+import { useGoals } from '@/hooks/useGoals';
+import { useProjects } from '@/hooks/useProjects';
+import { useSkills } from '@/hooks/useSkills';
 import { loadAiConfig, saveAiConfig } from '@/lib/aiConfig';
 import {
   listBackups,
@@ -62,6 +67,20 @@ import {
   validateData,
   type IBackupInfo,
 } from '@/lib/backup';
+import {
+  validateStorage,
+  type StorageValidationReport,
+  type ValidationIssue,
+} from '@/lib/storageValidator';
+import { computeBossProgressForParent } from '@/lib/taskCompletion';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 const STORAGE_KEYS = [
   '__quest_guild_tasks',
@@ -82,6 +101,10 @@ const STORAGE_KEYS = [
 export default function SettingsPage() {
   const { settings, updateSettings, resetSettings } = useSettings();
   const { state: syncState, syncNow } = useSync();
+  const { tasks, updateTask } = useTasks();
+  const { goals } = useGoals();
+  const { projects } = useProjects();
+  const { skills } = useSkills();
   const [syncing, setSyncing] = useState(false);
   const [manaMax, setManaMax] = useState(settings.manaMax);
   const [resetTime, setResetTime] = useState(settings.resetTime);
@@ -90,6 +113,8 @@ export default function SettingsPage() {
   const [floatingCollapseDelay, setFloatingCollapseDelay] = useState(settings.floatingCollapseDelay);
   const [backups, setBackups] = useState<IBackupInfo[]>([]);
   const [storageUsage, setStorageUsage] = useState(() => getStorageUsage());
+  const [healthReport, setHealthReport] = useState<StorageValidationReport | null>(null);
+  const [healthOpen, setHealthOpen] = useState(false);
   const [importPreview, setImportPreview] = useState<{
     valid: boolean;
     errors: string[];
@@ -366,6 +391,44 @@ export default function SettingsPage() {
       toast.error('备份创建失败');
     }
   }, [refreshBackups]);
+
+  const handleRunHealthCheck = useCallback(() => {
+    const report = validateStorage({ tasks, skills, goals, projects });
+    setHealthReport(report);
+    setHealthOpen(true);
+  }, [tasks, skills, goals, projects]);
+
+  const handleAutoFixProgress = useCallback(() => {
+    if (!healthReport) return;
+    const progressWarnings = healthReport.issues.filter(
+      (i) => i.level === 'warning' && i.message.includes('bossProgress') && i.taskId,
+    );
+    if (progressWarnings.length === 0) {
+      toast.info('当前没有需要修复的进度异常');
+      return;
+    }
+    let fixedCount = 0;
+    for (const issue of progressWarnings) {
+      const parentId = issue.taskId;
+      if (!parentId) continue;
+      const correctProgress = computeBossProgressForParent(tasks, parentId);
+      const parent = tasks.find((t) => t.id === parentId);
+      if (!parent || parent.bossProgress === correctProgress) continue;
+      updateTask(parentId, { bossProgress: correctProgress });
+      fixedCount++;
+    }
+    if (fixedCount > 0) {
+      toast.success(`已修复 ${fixedCount} 条进度异常`, {
+        description: '父任务 bossProgress 已对齐实际子女完成率',
+      });
+      setTimeout(() => {
+        const newReport = validateStorage({ tasks, skills, goals, projects });
+        setHealthReport(newReport);
+      }, 300);
+    } else {
+      toast.info('无需修复，所有进度已对齐');
+    }
+  }, [healthReport, tasks, skills, goals, projects, updateTask]);
 
   function formatBytes(bytes: number): string {
     if (bytes < 1024) return `${bytes} B`;
@@ -671,8 +734,8 @@ export default function SettingsPage() {
               )}
             </div>
 
-            {/* 导出 / 导入按钮 */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {/* 导出 / 导入 / 备份 / 体检 按钮 */}
+            <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
               <Button
                 variant="secondary"
                 onClick={handleExportData}
@@ -706,6 +769,18 @@ export default function SettingsPage() {
                 <span className="text-xs font-medium">立即备份</span>
                 <span className="text-[10px] text-muted-foreground font-normal">
                   创建当前快照
+                </span>
+              </Button>
+
+              <Button
+                variant="secondary"
+                onClick={handleRunHealthCheck}
+                className="h-auto py-3 flex flex-col items-center gap-1.5 border border-border/50 bg-secondary/40 hover:bg-secondary/70"
+              >
+                <Shield className="h-4 w-4 text-warning" />
+                <span className="text-xs font-medium">立即体检</span>
+                <span className="text-[10px] text-muted-foreground font-normal">
+                  检查数据一致性
                 </span>
               </Button>
               <input
@@ -1097,6 +1172,145 @@ export default function SettingsPage() {
           </AlertDialogContent>
         </AlertDialog>
       )}
+
+      {/* 体检报告弹窗 */}
+      <Dialog open={healthOpen} onOpenChange={setHealthOpen}>
+        <DialogContent className="border-border bg-card max-w-xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Shield className="h-5 w-5 text-warning" />
+              数据体检报告
+            </DialogTitle>
+            <DialogDescription>
+              {healthReport
+                ? healthReport.valid
+                  ? `数据结构一致（校验指纹：${healthReport.checksum ?? '无'}）`
+                  : '存在结构性错误，请修复后再进行备份或迁移'
+                : '正在检查…'}
+            </DialogDescription>
+          </DialogHeader>
+
+          {healthReport && (
+            <div className="space-y-4">
+              {/* 顶部总览 */}
+              <div
+                className={`rounded-md border p-3 ${
+                  healthReport.valid
+                    ? 'border-success/40 bg-success/10'
+                    : 'border-destructive/40 bg-destructive/10'
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  {healthReport.valid ? (
+                    <CheckCircle2 className="h-4 w-4 text-success shrink-0" />
+                  ) : (
+                    <XCircle className="h-4 w-4 text-destructive shrink-0" />
+                  )}
+                  <span
+                    className={`text-sm font-medium ${
+                      healthReport.valid ? 'text-success' : 'text-destructive'
+                    }`}
+                  >
+                    {healthReport.valid ? '体检合格' : '存在错误'}
+                  </span>
+                  <span className="ml-auto text-[11px] text-muted-foreground tabular-nums">
+                    {healthReport.issues.filter((i) => i.level === 'error').length} 错误 ·{' '}
+                    {healthReport.issues.filter((i) => i.level === 'warning').length} 警告
+                  </span>
+                </div>
+              </div>
+
+              {/* Error 列表 */}
+              {(() => {
+                const errors = healthReport.issues.filter((i) => i.level === 'error');
+                if (errors.length === 0) return null;
+                return (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-1.5">
+                      <XCircle className="h-3.5 w-3.5 text-destructive" />
+                      <span className="text-xs font-semibold text-destructive">结构性错误</span>
+                    </div>
+                    <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                      {errors.map((issue, idx) => (
+                        <div
+                          key={`e-${idx}`}
+                          className="rounded-md border border-destructive/30 bg-destructive/[0.08] px-3 py-2"
+                        >
+                          <div className="text-[12px] text-destructive/90">{issue.message}</div>
+                          {issue.taskId && (
+                            <div className="mt-0.5 text-[10px] font-mono text-destructive/70">
+                              taskId: {issue.taskId}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Warning 列表 */}
+              {(() => {
+                const warnings = healthReport.issues.filter((i) => i.level === 'warning');
+                if (warnings.length === 0) return null;
+                return (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-1.5">
+                      <AlertTriangle className="h-3.5 w-3.5 text-warning" />
+                      <span className="text-xs font-semibold text-warning">一致性警告</span>
+                    </div>
+                    <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
+                      {warnings.map((issue, idx) => (
+                        <div
+                          key={`w-${idx}`}
+                          className="rounded-md border border-warning/30 bg-warning/[0.08] px-3 py-2"
+                        >
+                          <div className="text-[12px] text-warning/90">{issue.message}</div>
+                          {issue.taskId && (
+                            <div className="mt-0.5 text-[10px] font-mono text-warning/70">
+                              taskId: {issue.taskId}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {healthReport.issues.length === 0 && (
+                <div className="rounded-md border border-border/40 bg-secondary/10 p-5 text-center">
+                  <Sparkles className="h-5 w-5 text-success mx-auto mb-1.5" />
+                  <div className="text-xs text-muted-foreground">
+                    数据状态极佳，没有发现任何异常
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setHealthOpen(false)}
+            >
+              关闭
+            </Button>
+            <Button
+              onClick={handleAutoFixProgress}
+              disabled={
+                !healthReport ||
+                !healthReport.issues.some(
+                  (i: ValidationIssue) => i.level === 'warning' && i.message.includes('bossProgress'),
+                )
+              }
+            >
+              <Wrench className="h-3.5 w-3.5" />
+              一键修复进度异常
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* 关于信息 */}
       <motion.div

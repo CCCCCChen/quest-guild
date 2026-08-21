@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -14,6 +14,8 @@ import {
   Trophy,
   X,
   ChevronRight,
+  AlertTriangle,
+  ArrowLeftCircle,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -53,6 +55,7 @@ import { useProjects } from '@/hooks/useProjects';
 import { useShop } from '@/hooks/useShop';
 import { useSettings } from '@/hooks/useSettings';
 import { formatDuration } from '@/lib/utils';
+import { computeGoalProgress } from '@/lib/progress';
 import type { IQuestTask, TaskDifficulty } from '@/types/quest';
 
 const DIFFICULTY_LABEL: Record<TaskDifficulty, string> = {
@@ -83,6 +86,7 @@ export default function TodayPage() {
     addTask,
     setTrackingTask,
     addAttentionTask,
+    removeAttentionTask,
   } = useTasks();
   const { goals } = useGoals();
   const { projects } = useProjects();
@@ -106,29 +110,66 @@ export default function TodayPage() {
   const goalNameMap = useMemo(() => new Map(goals.map((g) => [g.id, g.name])), [goals]);
   const projectNameMap = useMemo(() => new Map(projects.map((p) => [p.id, p.name])), [projects]);
 
+  // Phase 1.3：计算任务所属目标的「进度落后程度」权重，作为推荐排序因子
+  // 落后度 = max(0, 期望进度 - 实际进度)，乘 100 化成百分点 scale。
+  const getGoalLagWeight = useCallback(
+    (task: IQuestTask): number => {
+      if (!task.goalId) return 0;
+      const goal = goals.find((g) => g.id === task.goalId);
+      if (!goal || !goal.deadline || goal.deadline <= goal.createdAt) return 0;
+      const now = Date.now();
+      const total = goal.deadline - goal.createdAt;
+      const elapsed = Math.max(0, Math.min(total, now - goal.createdAt));
+      const expectedProgress = elapsed / total; // 0~1
+      const actualProgress = computeGoalProgress(tasks, projects, goal.id); // 0~1
+      return Math.max(0, expectedProgress - actualProgress);
+    },
+    [goals, tasks, projects],
+  );
+
   const highestValueTask = useMemo(() => {
     return [...pendingTasks].sort((a, b) => {
-      const aScore = a.rewardReputation + a.rewardSkillPoints * 20;
-      const bScore = b.rewardReputation + b.rewardSkillPoints * 20;
+      const lagA = getGoalLagWeight(a);
+      const lagB = getGoalLagWeight(b);
+      const aScore = a.rewardReputation + a.rewardSkillPoints * 20 + lagA * 150;
+      const bScore = b.rewardReputation + b.rewardSkillPoints * 20 + lagB * 150;
       return bScore - aScore;
     })[0];
-  }, [pendingTasks]);
+  }, [pendingTasks, getGoalLagWeight]);
 
   const biggestGrowthTask = useMemo(() => {
     return [...pendingTasks].sort((a, b) => {
+      const lagA = getGoalLagWeight(a);
+      const lagB = getGoalLagWeight(b);
       const aScore =
         (a.capabilityIds?.length || 0) * 30 +
         (a.relatedSkillId ? 20 : 0) +
         a.estimatedMinutes +
-        a.rewardSkillPoints * 50;
+        a.rewardSkillPoints * 50 +
+        lagA * 120;
       const bScore =
         (b.capabilityIds?.length || 0) * 30 +
         (b.relatedSkillId ? 20 : 0) +
         b.estimatedMinutes +
-        b.rewardSkillPoints * 50;
+        b.rewardSkillPoints * 50 +
+        lagB * 120;
       return bScore - aScore;
     })[0];
-  }, [pendingTasks]);
+  }, [pendingTasks, getGoalLagWeight]);
+
+  // Phase 1.3：法力水晶满槽软提示 + 一键移回最老注意力任务
+  const oldestAttentionTask = useMemo(() => {
+    if (activeAttentionTasks.length === 0) return null;
+    return [...activeAttentionTasks].sort((a, b) => a.createdAt - b.createdAt)[0];
+  }, [activeAttentionTasks]);
+
+  const handleMoveBackOldestAttention = useCallback(() => {
+    if (!oldestAttentionTask) return;
+    removeAttentionTask(oldestAttentionTask.id);
+    toast.success('已移回悬赏池', {
+      description: `「${oldestAttentionTask.name}」已从注意力任务移除`,
+    });
+  }, [oldestAttentionTask, removeAttentionTask]);
 
   const handleComplete = (task: IQuestTask) => {
     completeTask(task.id);
@@ -293,6 +334,35 @@ export default function TodayPage() {
           </DialogContent>
         </Dialog>
       </div>
+
+      {/* 法力水晶满槽软提示 */}
+      {activeAttentionTasks.length >= settings.manaMax && oldestAttentionTask && (
+        <div className="flex items-start justify-between gap-3 rounded-md border border-warning/50 bg-warning/[0.09] px-4 py-3 shadow-[0_0_0_1px_rgba(255,170,60,0.15)]">
+          <div className="flex items-start gap-2.5 min-w-0 flex-1">
+            <AlertTriangle className="h-4 w-4 text-warning shrink-0 mt-0.5" />
+            <div className="min-w-0 flex-1">
+              <div className="text-sm font-semibold text-warning">
+                💎 法力水晶已满（当前 {activeAttentionTasks.length}/{settings.manaMax}）
+              </div>
+              <p className="text-xs text-warning/80 mt-0.5 leading-relaxed">
+                建议先完成 1 个注意力任务，或一键移回最老的注意力任务
+                {`「${oldestAttentionTask.name}」`}
+                （预估 {oldestAttentionTask.estimatedMinutes} 分钟）
+              </p>
+            </div>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleMoveBackOldestAttention}
+            className="shrink-0 gap-1.5 border-warning/40 text-warning hover:bg-warning/10 hover:text-warning"
+          >
+            <ArrowLeftCircle className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">移回悬赏池</span>
+            <span className="sm:hidden">移回</span>
+          </Button>
+        </div>
+      )}
 
       {(highestValueTask || biggestGrowthTask) && (
         <section className="grid grid-cols-1 xl:grid-cols-2 gap-4">
