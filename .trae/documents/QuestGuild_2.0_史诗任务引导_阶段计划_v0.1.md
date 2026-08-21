@@ -41,14 +41,20 @@
 > 预计工作量：1~2 天  
 > 依赖：无（可立即开工，不影响其他 Phase 的 UI/交互开发，但若跳过则备份/迁移/导入全不安全）
 
+> ✅ **本批已全部落地（commit `a679751`，2026-08-21）** — tsc / eslint(0 errors) / pre-commit hook 通过；P0-3 迁移脚本冒烟、P0-4 存量校验器单测、P0-5 zod `safeParse` + `z.toJSONSchema` 导出均有运行时证据。下表各 `#` 列加 ✅ 前缀标记完成。
+>
+> ⚠ **P0-2 勘误**：原风险表「main.cjs 托管 server 已落地」系**陈旧错误**——实测 `quest-guild-electron/main.cjs` **并不** spawn `server/index.js`（无 child_process），server 是独立 `node server/index.js` 进程。据此 P0-2 只做两件实事：① DB 子目录 `quest-guild`→`db`（最终 `<userData>/db/quest-guild.db`，去三级同名嵌套）；② main.cjs 注入 `QUEST_GUILD_USER_DATA` 铺路契约（server 独立运行时回退 `__dirname`）。
+>
+> 🔧 **P0-3 运行注意**：`server/node_modules/better-sqlite3` 编译于 ABI 137（Node 24），迁移脚本须用 `D:\TinySoftware\nodejs\node.exe` 运行，默认 `node`(v22, ABI 127) 会 `ERR_DLOPEN_FAILED`。
+
 | # | 子项 | 验收标准 | 对应代码位置 |
 |---|---|---|---|
-| P0-1 | backup.ts `DATA_KEYS` + Settings 页 `STORAGE_KEYS` 补齐 3 个遗漏 key：`__quest_guild_goals` / `__quest_guild_projects` / `__quest_guild_reflections`；`validateData()` 同步新增 3 个 key 的类型校验<br>⚠ **隐含前置**：goals/projects 现已落**本地 SQLite**（Phase 5.5），而 backup.ts 是 localStorage 备份——需先明确「SQLite 数据如何进备份」（否则补了 key 也备份不到库里的目标/项目），再动手 | 用户点「手动导出」→ JSON 里可看到 goals/projects/reflections 数组；Settings「恢复」可完整回写 | `src/lib/backup.ts` + `src/pages/Settings/SettingsPage.tsx` |
-| P0-2 | 定 Electron 安装版 SQLite 最终目录锚点 + 修复三级同名嵌套风险：当前 server/index.js 路径为 `%APPDATA%\quest-guild\quest-guild\quest-guild.db`，改到 `%APPDATA%\quest-guild\db\quest-guild.db` 或根目录直接写，避免未来维护混乱 | Electron 启动后 explorer 打开 `%APPDATA%\quest-guild\`，db 文件在约定路径（需与「2.0 方案文档」P0-1 主进程托管 server 联调） | `server/index.js#L47-L54` + `quest-guild-electron/main.cjs`（需补 QUEST_GUILD_USER_DATA 注入） |
-| P0-3 | 写「localStorage → SQLite」迁移脚本（独立可执行脚本），支持一键从浏览器试用版迁移到安装版 Electron：从 Settings 导出的 JSON 读 → 写入 SQLite 对应表 | 迁移后 SQLite 里 tasks/goals/projects/skills/settings 行数与 localStorage 一致；存在差异时报告冲突项并提示 merge 策略选择 | `scripts/local-to-sqlite-migrate.mjs` 或纳入 Settings「高级操作」 |
-| P0-4 | 存量校验机制（校验器独立、可复用给后续导入）：① 每条记录 id 唯一性；② parentId / goalId / projectId 外键回链存在性；③ 已完成子任务 → 父任务 bossProgress ≥ 实际完成比例；④ capabilityIds 都存在于能力树 | 校验失败输出 human-readable 报告（xxx 条 id 冲突、yyy 条孤儿任务），通过后生成 `checksum` 写入迁移元信息 | `src/lib/storageValidator.ts`（新建，单测覆盖） |
-| P0-5 | 专家导入/导出格式的 **JSON Schema 文件**（Zod 描述 → 输出 `.schema.json`），作为导入校验器 & 专家交付模板依据 | 导入格式错误可精确定位到「第 3 个 goal.deadline 格式不正确 / project p-ai 找不到对应 goalExternalId」 | `src/data/career-plan-v1.schema.ts` + 构建时导出 schema 到 `public/schemas/` |
-| P0-6 | preset.ts 新增 `PRESET_GOALS` / `PRESET_PROJECTS` 常量（就用 `quest-guild-默认目标与能力树初始值.md` 里的 7 Goal + 7 Project 转成标准 IGoal/IProject），useGoals / useProjects fallback 从空数组改注入 | 新用户首次打开 GoalsPage/ProjectsPage 不再是空白页，有可参考骨架 | `src/data/preset.ts` + `src/hooks/useGoals.ts#L13` + `src/hooks/useProjects.ts#L13` |
+| ✅ P0-1 | backup.ts `DATA_KEYS` + Settings 页 `STORAGE_KEYS` 补齐 3 个遗漏 key：`__quest_guild_goals` / `__quest_guild_projects` / `__quest_guild_reflections`；`validateData()` 同步新增 3 个 key 的类型校验<br>⚠ **隐含前置**：goals/projects 现已落**本地 SQLite**（Phase 5.5），而 backup.ts 是 localStorage 备份——需先明确「SQLite 数据如何进备份」（否则补了 key 也备份不到库里的目标/项目），再动手 | 用户点「手动导出」→ JSON 里可看到 goals/projects/reflections 数组；Settings「恢复」可完整回写 | `src/lib/backup.ts` + `src/pages/Settings/SettingsPage.tsx` |
+| ✅ P0-2 | 定 Electron 安装版 SQLite 最终目录锚点 + 修复三级同名嵌套风险：当前 server/index.js 路径为 `%APPDATA%\quest-guild\quest-guild\quest-guild.db`，改到 `%APPDATA%\quest-guild\db\quest-guild.db` 或根目录直接写，避免未来维护混乱 | Electron 启动后 explorer 打开 `%APPDATA%\quest-guild\`，db 文件在约定路径（需与「2.0 方案文档」P0-1 主进程托管 server 联调） | `server/index.js#L47-L54` + `quest-guild-electron/main.cjs`（需补 QUEST_GUILD_USER_DATA 注入） |
+| ✅ P0-3 | 写「localStorage → SQLite」迁移脚本（独立可执行脚本），支持一键从浏览器试用版迁移到安装版 Electron：从 Settings 导出的 JSON 读 → 写入 SQLite 对应表 | 迁移后 SQLite 里 tasks/goals/projects/skills/settings 行数与 localStorage 一致；存在差异时报告冲突项并提示 merge 策略选择 | `scripts/local-to-sqlite-migrate.mjs` 或纳入 Settings「高级操作」 |
+| ✅ P0-4 | 存量校验机制（校验器独立、可复用给后续导入）：① 每条记录 id 唯一性；② parentId / goalId / projectId 外键回链存在性；③ 已完成子任务 → 父任务 bossProgress ≥ 实际完成比例；④ capabilityIds 都存在于能力树 | 校验失败输出 human-readable 报告（xxx 条 id 冲突、yyy 条孤儿任务），通过后生成 `checksum` 写入迁移元信息 | `src/lib/storageValidator.ts`（新建，单测覆盖） |
+| ✅ P0-5 | 专家导入/导出格式的 **JSON Schema 文件**（Zod 描述 → 输出 `.schema.json`），作为导入校验器 & 专家交付模板依据 | 导入格式错误可精确定位到「第 3 个 goal.deadline 格式不正确 / project p-ai 找不到对应 goalExternalId」 | `src/data/career-plan-v1.schema.ts` + 构建时导出 schema 到 `public/schemas/` |
+| ✅ P0-6 | preset.ts 新增 `PRESET_GOALS` / `PRESET_PROJECTS` 常量（就用 `quest-guild-默认目标与能力树初始值.md` 里的 7 Goal + 7 Project 转成标准 IGoal/IProject），useGoals / useProjects fallback 从空数组改注入 | 新用户首次打开 GoalsPage/ProjectsPage 不再是空白页，有可参考骨架 | `src/data/preset.ts` + `src/hooks/useGoals.ts#L13` + `src/hooks/useProjects.ts#L13` |
 
 ---
 
@@ -58,10 +64,10 @@
 
 | # | 子项 | 验收标准 | 备注 |
 |---|---|---|---|
-| 0.1 | 统一 `inheritContext(parent, patch?)` 函数（抽成 lib 函数，不在 hook 里），覆盖 3 个入口：① AI 转正 handleConvertOne/All；② 手动「添加子任务」；③ ProjectDetailPage 直接建任务。继承字段：goalId / projectId / capabilityIds / tags / source / 阶段 stage（若无 patch 覆盖） | 从项目页建任务自动带 goalId & projectId；AI 拆解子任务继承父 epic 的上下文，不再是孤儿 todo | 可作为 isLeaf 等工具的同文件 `src/lib/contextInherit.ts` |
-| 0.2 | 派生 `isLeaf(task)` + 「过大预警」徽章：estimatedMinutes > 120min && 无子任务 → 任务卡右上黄徽章 ⚠「过大，建议拆解」+ 徽章一键调 AI 拆解弹层 | 所有 ≥2h 且无子女的任务都能看到；徽章点击正确弹出 AI 拆解对话框 | 复用现有 AI 草稿箱弹层，仅新增快捷入口 |
-| 0.3 | 浏览器端 `aiDraft.ts` 的 prompt 移植 `server/services/llm.js` 里已验证的专业拆解规则：① 时间基准 20~120min；② 阶段 2~5 个；③ 动词开头优先；④ 默认 simple/normal 难度；并把 server 版 prompt 区域标记 @deprecated | AI 拆解结果质量对齐服务端专业版；无 server 时纯前端也能出一致结果 | ⚠ server 端 `/decompose`（`server/index.js:6` `require('./services/llm')`）**仍存活**；移植后让 server 端也复用同一套共享规则常量，避免 llm.js / aiClient / B2 注入**三处分叉** |
-| 0.4 | 父史诗「通关奖励结算」（**⚠ 检测逻辑已存在，勿重写**）：① 子任务全 completed → 父置 completed 已由 `useTasks.ts:707-711`（`siblings.every(completed) → 父 completed + bossProgress=100`）实现，**本项只补奖励发放**；② 发放 `epic.rewardReputation × 系数(起步1.0) + epic.rewardSkillPoints × 系数`——epic 自身带预置 rewardReputation（preset 如 800），系数写进 settings 留后续可调；③ toast「史诗通关 +X 声望」+ 可选 CelebrationLayer confetti（复用现有粒子特效） | 完成某史诗全部子任务 → 父史诗卡片变绿完成态 + 弹出通关 toast + 可选粒子；声望/技能点入账与 epic 预置值一致 | 系数后续可在 Settings 加滑条（Phase 1 后补）；⚠ daily 任务奖励在完成时按 actualMinutes 重算（`useTasks.ts:662-665`），**本奖励仅针对 epic 预置值，不要对 daily 套用同系数** |
+| ✅ 0.1 | 统一 `inheritContext(parent, patch?)` 函数（抽成 lib 函数，不在 hook 里），覆盖 3 个入口：① AI 转正 handleConvertOne/All；② 手动「添加子任务」；③ ProjectDetailPage 直接建任务。继承字段：goalId / projectId / capabilityIds / tags / source / 阶段 stage（若无 patch 覆盖） | 从项目页建任务自动带 goalId & projectId；AI 拆解子任务继承父 epic 的上下文，不再是孤儿 todo | 可作为 isLeaf 等工具的同文件 `src/lib/contextInherit.ts` |
+| ✅ 0.2 | 派生 `isLeaf(task)` + 「过大预警」徽章：estimatedMinutes > 120min && 无子任务 → 任务卡右上黄徽章 ⚠「过大，建议拆解」+ 徽章一键调 AI 拆解弹层 | 所有 ≥2h 且无子女的任务都能看到；徽章点击正确弹出 AI 拆解对话框 | 复用现有 AI 草稿箱弹层，仅新增快捷入口 |
+| ✅ 0.3 | 浏览器端 `aiDraft.ts` 的 prompt 移植 `server/services/llm.js` 里已验证的专业拆解规则：① 时间基准 20~120min；② 阶段 2~5 个；③ 动词开头优先；④ 默认 simple/normal 难度；并把 server 版 prompt 区域标记 @deprecated | AI 拆解结果质量对齐服务端专业版；无 server 时纯前端也能出一致结果 | ⚠ server 端 `/decompose`（`server/index.js:6` `require('./services/llm')`）**仍存活**；移植后让 server 端也复用同一套共享规则常量，避免 llm.js / aiClient / B2 注入**三处分叉** |
+| ✅ 0.4 | 父史诗「通关奖励结算」（**⚠ 检测逻辑已存在，勿重写**）：① 子任务全 completed → 父置 completed 已由 `useTasks.ts:707-711`（`siblings.every(completed) → 父 completed + bossProgress=100`）实现，**本项只补奖励发放**；② 发放 `epic.rewardReputation × 系数(起步1.0) + epic.rewardSkillPoints × 系数`——epic 自身带预置 rewardReputation（preset 如 800），系数写进 settings 留后续可调；③ toast「史诗通关 +X 声望」+ 可选 CelebrationLayer confetti（复用现有粒子特效） | 完成某史诗全部子任务 → 父史诗卡片变绿完成态 + 弹出通关 toast + 可选粒子；声望/技能点入账与 epic 预置值一致 | 系数后续可在 Settings 加滑条（Phase 1 后补）；⚠ daily 任务奖励在完成时按 actualMinutes 重算（`useTasks.ts:662-665`），**本奖励仅针对 epic 预置值，不要对 daily 套用同系数** |
 
 ---
 
@@ -252,8 +258,8 @@ Settings 页「专家咨询与职业规划 · 导入/导出」新卡片
 
 | 阶段 | 主要修复的差距（对应头脑风暴 G1~G14） | 业务验收 | 工程验收 |
 |---|---|---|---|
-| P0 底座 | G5 备份安全（补 3 个遗漏 key）+ 「Goal/Project 留存」正式项 | 备份/恢复安全；新用户 Goals/Projects 有初值；Electron 版 SQLite 路径合规 | Zod 校验、validator 单测、迁移脚本 dry-run 全过 |
-| Phase 0 | G1 任务不再是孤儿 / G6 里程碑能存 / G14 父史诗奖励 / AI 拆解规则对齐 | 从项目页建任务自动带父上下文；≥2h 任务有拆解预警；父史诗通关有奖励 toast | inheritContext 单测覆盖 3 入口；prompt 移植 diff 校验 |
+| ✅ P0 底座 | G5 备份安全（补 3 个遗漏 key）+ 「Goal/Project 留存」正式项 | 备份/恢复安全；新用户 Goals/Projects 有初值；Electron 版 SQLite 路径合规 | ✅ 全过（commit `a679751`）：Zod `safeParse` 精确定位 path（`["goals",0,"deadline"]`） / `storageValidator` 单测 6 issue 全中 / 迁移脚本 dry-run 行数一致 / tsc+eslint 0 errors |
+| ✅ Phase 0 | G1 任务不再是孤儿 / G6 里程碑能存 / G14 父史诗奖励 / AI 拆解规则对齐 | 从项目页建任务自动带父上下文；≥2h 任务有拆解预警；父史诗通关有奖励 toast | ✅ 已落地（commit `a679751`）：`inheritContext` 覆盖 3 入口（QuestPool 转正×2 + ProjectDetail 提交）/ `decomposeRules.json` 单源消除 aiClient·llm.js·B2 三处分叉 / 过大预警徽章 / `epicClearCoefficient` 通关奖励 + 庆祝事件 |
 | Phase 1 | G12 进度条真的动 + Today 推荐与目标联动 | 叶子任务完成 → 项目/目标进度条实时变化且数值正确 | progress.ts 单测覆盖边界（空项目、子任务无预估、完成率超 100%） |
 | Phase 2 | G6 结构化里程碑 / C2 下一步推荐可预测 / D2 能力有轨迹 | Goals 详情可增删里程碑；下一步推荐排序结果与公式一致；能力详情能看到近 5 任务 | nextAction 纯函数 10+ case 单测；能力反向追溯 SQL/聚合无 N+1 问题 |
 | Phase 3 | B1 递归 3 层 / B2 AI 预填属性 / B3 体检报告 | UI 可手动建孙任务；AI 子任务带预属性，预览奖励与入账一致；转正前可看红/黄体检点 | 体检函数单测覆盖各分支；QuestPoolPage 树渲染 3 层无布局错位 |
@@ -266,7 +272,7 @@ Settings 页「专家咨询与职业规划 · 导入/导出」新卡片
 
 | 风险 | 影响 | 缓解策略 |
 |---|---|---|
-| `server/index.js` 的 SQLite 路径为 `%APPDATA%\quest-guild\quest-guild\quest-guild.db`（三级同名嵌套，维护易乱） | P0-2 需改到 `%APPDATA%\quest-guild\db\quest-guild.db` 或根目录直写 | ~~原风险「main.cjs 未托管 server」已不成立（Electron 并入根 package.json、main.cjs 托管 server 已落地），删除~~；存储层联调等 P0-1/P0-3 做完再动路径锚点 |
+| ~~`server/index.js` 的 SQLite 路径为 `%APPDATA%\quest-guild\quest-guild\quest-guild.db`（三级同名嵌套，维护易乱）~~ | ✅ 已改到 `%APPDATA%\quest-guild\db\quest-guild.db`（commit `a679751`） | ⚠ **勘误**：原注「~~原风险『main.cjs 未托管 server』已不成立（main.cjs 托管 server 已落地）~~」系陈旧错误——实测 `main.cjs` **不 spawn** server（无 child_process），server 为独立进程。P0-2 已落地路径锚点 + `QUEST_GUILD_USER_DATA` 铺路契约（详见文首 P0 勘误段） |
 | ~~QuestPoolPage 树形 UI 目前是否支持 >2 层渲染未确认~~（**已确认：现状仅 2 层，见 3.1**） | Phase 3.1 已从"加按钮"定为"重构渲染层"，工期 ~1 天（见 3.1） | 3.1 已据此改估算，无需再读代码确认 |
 | 能力 ID 自动匹配算法起步用编辑距离，中文能力名误匹配率可能高 | Phase 2 映射面板用户需要手动映射的比例大 | 起步先接受 85% 自动命中率，把未命中的按高亮提示，Phase 4 再补中文分词 + 分类别名词典 |
 | 父史诗通关奖励 ×1.0 vs ×1.2~1.5 的系数争议 | 用户反馈"通关没成就感"或"声望通胀"皆可能 | 系数写进 Settings（UI Phase 1 后补），默认 1.0，先跑 2 周看用户实际声望获取速率再定是否调 |
