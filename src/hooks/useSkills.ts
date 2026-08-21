@@ -91,6 +91,13 @@ function setPointsValue(v: number) {
   pointsListeners.forEach((fn) => fn(v));
 }
 
+// 模块级技能点入账（非 hook 场景：如云端完成任务的合并结算，mergeRemoteTasks 调用）
+export function addSkillPointsSync(amount: number) {
+  if (!Number.isFinite(amount) || amount <= 0) return;
+  setPointsValue((skillPointsCache ?? loadPoints()) + amount);
+  syncState.markMetaDirty();
+}
+
 async function syncFromServer() {
   try {
     const [skills, points] = await Promise.all([

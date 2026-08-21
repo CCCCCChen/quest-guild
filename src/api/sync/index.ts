@@ -87,9 +87,11 @@ export async function pushSync(): Promise<SyncResult> {
   };
   try {
     const result = await getActiveTarget().push(payload);
-    // 双向同步：把云端返回的 qg 任务 + 云端删除集合合并回本地（LWW by updatedAt）
-    mergeRemoteTasks(result.tasks ?? [], result.deletedOnCloudIds ?? []);
     syncState.clearAfterSync(result.serverTime);
+    // 双向同步：把云端返回的 qg 任务 + 云端删除集合合并回本地（LWW by updatedAt）。
+    // 放在 clearAfterSync 之后：若合并触发「云端完成结算」（markTaskDirty/markMetaDirty），
+    // 这些脏标记不会被本次 clear 清空，下次同步会把 quest 权威结算值推回云端。
+    mergeRemoteTasks(result.tasks ?? [], result.deletedOnCloudIds ?? []);
     syncState.setResult(`已同步 ${result.synced} 条 · ${new Date(result.serverTime).toLocaleString()}`);
     return result;
   } catch (e) {

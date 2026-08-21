@@ -59,6 +59,19 @@ function setReputationValue(v: number) {
   reputationListeners.forEach((fn) => fn(v));
 }
 
+// 模块级声望入账（非 hook 场景：如云端完成任务的合并结算，mergeRemoteTasks 调用）
+export function addReputationSync(amount: number, reason?: string) {
+  if (!Number.isFinite(amount)) return;
+  const next = Math.max(0, (reputationCache ?? loadReputation()) + amount);
+  setReputationValue(next);
+  syncState.markMetaDirty();
+  if (amount > 0) {
+    toast.success(`获得 ${amount} 声望${reason ? ` · ${reason}` : ''}`, {
+      description: '公会声望 +' + amount,
+    });
+  }
+}
+
 function setShopItemsValue(v: IShopItem[]) {
   shopItemsCache = v;
   store.setItem(SHOP_ITEMS_KEY, JSON.stringify(v));

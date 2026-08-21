@@ -9,7 +9,8 @@ import { computeReputation, computeSkillPoints } from '@/lib/economy';
 import { store, subscribeStorageChange } from '@/lib/storage';
 import { appLogger } from '@/lib/runtime';
 import { tasksApi } from '@/api';
-import { grantCapabilityExperience } from '@/hooks/useSkills';
+import { grantCapabilityExperience, addSkillPointsSync } from '@/hooks/useSkills';
+import { addReputationSync } from '@/hooks/useShop';
 import { syncState } from '@/api/sync/state';
 import type { QgTaskSnapshot } from '@/api/sync/types';
 
@@ -149,11 +150,14 @@ export function cascadeDeleteTasksByGoal(goalId: string): void {
 // - 云端较新 → 采用云端同步字段（status/completed/name 等），保留本地独有字段（goalId/projectId/tags…）
 // - 本地较新 → 保留本地（下次同步会推上去）
 // - deletedIds → 云端已删，本地移除
-// - 云端独有 → 新增到本地
+// - 云端独有 → 新增到本地（workspace 悬赏专区新建的任务，补齐 quest 专属字段默认值）
+// - 云端完成 → 本地补跑结算管线（声望/技能点/能力经验），结算权威在 quest 端
 export function mergeRemoteTasks(remoteTasks: QgTaskSnapshot[], deletedIds: string[]): void {
   const remoteById = new Map(remoteTasks.map((t) => [t.id, t]));
   const deletedSet = new Set(deletedIds);
   const merged: IQuestTask[] = [];
+  // 云端标记完成、本地尚未结算过奖励的任务（含「本地已有→云端完成」与「云端新建即完成」两条路径）
+  const cloudCompleted: IQuestTask[] = [];
 
   for (const local of tasksState) {
     if (deletedSet.has(local.id)) continue; // 云端已删
@@ -164,7 +168,8 @@ export function mergeRemoteTasks(remoteTasks: QgTaskSnapshot[], deletedIds: stri
     }
     const remoteUpdated = Date.parse(remote.updatedAt);
     if (remoteUpdated >= local.updatedAt) {
-      merged.push({
+      const wasCompleted = local.status === 'completed';
+      const next: IQuestTask = {
         ...local,
         name: remote.title,
         description: remote.description || '',
@@ -181,9 +186,14 @@ export function mergeRemoteTasks(remoteTasks: QgTaskSnapshot[], deletedIds: stri
         goalId: remote.goalId ?? local.goalId,
         projectId: remote.projectId ?? local.projectId,
         tags: remote.tags ?? local.tags,
-        completedAt: remote.completedDate ? Date.parse(remote.completedDate) : local.completedAt,
+        // 云端撤销完成（status 回 pending）时清掉本地 completedAt，避免 streak/今日声望误算
+        completedAt: remote.status === 'completed'
+          ? (remote.completedDate ? Date.parse(remote.completedDate) : local.completedAt)
+          : undefined,
         updatedAt: remoteUpdated,
-      });
+      };
+      merged.push(next);
+      if (!wasCompleted && next.status === 'completed') cloudCompleted.push(next);
     } else {
       merged.push(local);
     }
@@ -194,7 +204,7 @@ export function mergeRemoteTasks(remoteTasks: QgTaskSnapshot[], deletedIds: stri
     if (deletedSet.has(remote.id)) continue;
     if (merged.some((t) => t.id === remote.id)) continue;
     const remoteUpdated = Date.parse(remote.updatedAt);
-    merged.push({
+    const imported: IQuestTask = {
       id: remote.id,
       name: remote.title,
       description: remote.description || '',
@@ -221,10 +231,80 @@ export function mergeRemoteTasks(remoteTasks: QgTaskSnapshot[], deletedIds: stri
       completedAt: remote.completedDate ? Date.parse(remote.completedDate) : undefined,
       source: 'user',
       tags: remote.tags ?? [],
-    });
+    };
+    merged.push(imported);
+    // 云端新建且已完成的任务（创建到完成都在 workspace 发生）同样需要结算
+    if (imported.status === 'completed') cloudCompleted.push(imported);
   }
 
-  tasksState = merged;
+  // 云端完成结算 pass：按 quest 权威公式重算奖励并入账。
+  // - actualMinutes 云端不记录（无专注计时），回退用预估分钟
+  // - 本地在追踪该任务时，把已累计专注时长算进 actualMinutes 并停止追踪
+  // - 结算后 bump updatedAt：本地版本成为最新，下次同步推回权威值（覆盖云端预览值）
+  if (cloudCompleted.length) {
+    const now = Date.now();
+    const settleIds = new Set(cloudCompleted.map((t) => t.id));
+    let settleSummaryRep = 0;
+    let settleSummarySp = 0;
+
+    tasksState = merged.map((t) => {
+      if (!settleIds.has(t.id)) return t;
+
+      // 本地仍在追踪此任务 → 把累计专注时长结算进 actualMinutes，并结束追踪
+      let trackedSeconds = 0;
+      if (trackState?.taskId === t.id) {
+        trackedSeconds = trackState.accumulatedSeconds;
+        if (trackState.isRunning && trackState.lastStartTime) {
+          trackedSeconds += Math.floor((Date.now() - trackState.lastStartTime) / 1000);
+        }
+      }
+
+      const trackedMinutes = trackedSeconds > 0 ? Math.round(trackedSeconds / 60) : 0;
+      const actualMinutes = trackedMinutes > 0
+        ? trackedMinutes
+        : (t.actualMinutes > 0 ? t.actualMinutes : t.estimatedMinutes);
+
+      const finalReputation = computeReputation({ difficulty: t.difficulty, importance: t.importance, minutes: actualMinutes });
+      const finalSkillPoints = computeSkillPoints(t.difficulty);
+
+      settleSummaryRep += finalReputation;
+      settleSummarySp += finalSkillPoints;
+
+      if (t.relatedSkillId) {
+        const minutes = actualMinutes > 0 ? actualMinutes : t.estimatedMinutes;
+        grantCapabilityExperience(t.relatedSkillId, minutes);
+      }
+
+      return {
+        ...t,
+        status: 'completed',
+        isTracking: false,
+        isAttention: false,
+        actualMinutes,
+        rewardReputation: finalReputation,
+        rewardSkillPoints: finalSkillPoints,
+        bossProgress: t.type === 'epic' ? 100 : t.bossProgress,
+        updatedAt: now,
+      };
+    });
+
+    // 本地在追踪的任务被云端完成 → 结束追踪状态
+    if (trackState && settleIds.has(trackState.taskId)) {
+      trackState = null;
+      saveTrackCache(null);
+    }
+
+    // 结算副作用：声望/技能点入账（模块级，脱离 React hook）+ 脏标记（推回权威值）
+    addReputationSync(settleSummaryRep, `云端完成 ${cloudCompleted.length} 个任务`);
+    addSkillPointsSync(settleSummarySp);
+    for (const t of cloudCompleted) {
+      syncState.markTaskDirty(t.id);
+    }
+    syncState.markMetaDirty();
+  } else {
+    tasksState = merged;
+  }
+
   saveTasksCache(tasksState);
   notifyAll();
 }
