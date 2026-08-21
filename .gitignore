@@ -76,7 +76,13 @@ quest-guild-electron/output/
 *.db-shm
 *.db-wal
 server/backups/
-quest-guild-electron/renderer/app/assets/
+quest-guild-electron/renderer/app/
+
+# Logs
+electron-build.log
 
 # Generated artifacts (keep .workbuddy/memory as project knowledge)
 .workbuddy/artifacts/
+quest-guild-electron/.electron-cache-fresh/
+quest-guild-electron/out/
+quest-guild-electron/package-lock.json

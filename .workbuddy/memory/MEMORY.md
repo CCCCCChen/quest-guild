@@ -12,7 +12,7 @@
 - **Phase 3**：B 方案起步（数字框架 rank/段位），玩家等级留作可选增强。
 - **AI 桥接**：**只解锁 `cap-creation-ai-basic`**（父节点 `cap-creation-ai` 保持 locked，符合用户决策）。
 - **法力水晶**：改名「专注槽」（静态容量，语义诚实）。
-- **Electron asar 只读**：随 Phase 5 做（db 迁 userData）；近期不发安装包则暂缓。
+- **Electron 已并入根 package.json（单一事实源，2026-08-20）**：`main.cjs`/`preload.cjs` + `renderer/` 构建产物留在 `quest-guild-electron/`，但依赖/脚本/`build` 配置全在根 `package.json`（无子目录 package.json）；prebuild/retry-build 提取为 `scripts/electron-clean-release.mjs` 与 `electron-retry-build.mjs`。根 `type:module` 下主进程须用 `.cjs`（否则 require 报 ESM 错）。asar 只读随 Phase 5 做（db 迁 userData），近期不发安装包则暂缓。
 
 ## 阶段状态（2026-08-18）
 - ✅ **Phase 0**（地基）：完成。constants.js + 难度校验 + 本地公式统一 + NaN 杜绝。

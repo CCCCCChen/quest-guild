@@ -27,7 +27,7 @@
       "cache": "quest-guild-electron/.electron-cache"
     },
     "directories": {
-      "output": "quest-guild-electron/release"
+      "output": "quest-guild-electron/out"
     },
     "files": [
       "quest-guild-electron/main.cjs",
