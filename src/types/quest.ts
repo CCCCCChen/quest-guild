@@ -141,4 +141,6 @@ export interface IAppSettings {
   floatingPosition: IFloatingPosition;
   floatingOpacity: number;
   floatingCollapseDelay: number;
+  /** 史诗父任务「通关奖励」系数：子任务全完成后，按父任务预置 rewardReputation × 此系数发放。默认 1.0，UI 调参留待 Phase 1 后补 */
+  epicClearCoefficient?: number;
 }

@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host",
-    "build": "vite build",
+    "build": "npm run export:schema && vite build",
+    "export:schema": "node scripts/export-career-schema.mjs",
     "typecheck": "tsc -p tsconfig.app.json",
     "lint": "concurrently npm:typecheck npm:lint:eslint",
     "lint:eslint": "eslint src",
@@ -43,8 +44,18 @@
       "icon": "quest-guild-electron/assets/icon.ico",
       "signAndEditExecutable": false,
       "target": [
-        { "target": "nsis", "arch": ["x64"] },
-        { "target": "portable", "arch": ["x64"] }
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
       ]
     },
     "nsis": {
@@ -95,6 +106,8 @@
     "date-fns": "^4.1.0",
     "echarts": "~5.6.0",
     "echarts-for-react": "~3.0.2",
+    "electron-log": "^5.4.4",
+    "electron-store": "^8.1.0",
     "embla-carousel-react": "^8.6.0",
     "framer-motion": "^12.38.0",
     "gsap": "^3.15.0",
@@ -116,9 +129,7 @@
     "tailwindcss": "^4.2.2",
     "tw-animate-css": "^1.2.0",
     "vaul": "^1.1.2",
-    "zod": "^4.3.6",
-    "electron-log": "^5.4.4",
-    "electron-store": "^8.1.0"
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@eslint/js": "^9.32.0",
@@ -126,16 +137,16 @@
     "@types/node": "^24",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "@vitejs/plugin-react": "^6.0.4",
+    "@vitejs/plugin-react": "^5.2.0",
     "concurrently": "^9",
+    "electron": "^28.0.0",
+    "electron-builder": "^24.9.1",
     "eslint": "^9",
     "eslint-plugin-react-hooks": "^5.2.0",
     "eslint-plugin-react-refresh": "^0.4.20",
     "globals": "^15.15.0",
     "typescript": "~5.9",
     "typescript-eslint": "^8.38.0",
-    "vite": "^8",
-    "electron": "^28.0.0",
-    "electron-builder": "^24.9.1"
+    "vite": "^7.3.6"
   }
 }

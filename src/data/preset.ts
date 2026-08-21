@@ -1,6 +1,6 @@
 // EXPORTS: PRESET_TASKS, PRESET_SKILLS, PRESET_SHOP_ITEMS, PRESET_FOCUS_LOGS, INITIAL_REPUTATION, INITIAL_SKILL_POINTS, PRESET_SKILL_POINTS, DEFAULT_SETTINGS, DEFAULT_MANA_CONFIG
 
-import type { IQuestTask, ISkillNode, IShopItem, IAppSettings, IManaConfig, IFocusLog } from '@/types/quest';
+import type { IQuestTask, ISkillNode, IShopItem, IAppSettings, IManaConfig, IFocusLog, IGoal, IProject } from '@/types/quest';
 
 // ========== 预设任务 ==========
 const PRESET_TASKS_RAW: Omit<IQuestTask, 'updatedAt'>[] = [
@@ -224,6 +224,31 @@ export const PRESET_TASKS: IQuestTask[] = PRESET_TASKS_RAW.map((t) => ({
   ...t,
   updatedAt: t.createdAt,
 }));
+
+// ========== 预设目标 / 项目骨架（新用户首开 Goals/Projects 页不再空白） ==========
+const PRESET_GOALS_RAW: Omit<IGoal, 'createdAt' | 'updatedAt'>[] = [
+  { id: 'goal-portfolio', name: '打造个人作品集', description: '沉淀可展示的项目与技能，建立专业身份。', status: 'active' },
+  { id: 'goal-python', name: '掌握 Python 数据分析', description: '系统学习数据分析栈并完成一个真实项目。', status: 'active' },
+  { id: 'goal-ai', name: '建立 AI 核心能力', description: '理解并善用 LLM / RAG / Agent 等 AI 能力。', status: 'active' },
+  { id: 'goal-body', name: '强化身体底盘', description: '居家渐进式健身，改善体态与精力。', status: 'active' },
+  { id: 'goal-expression', name: '提升表达与影响力', description: '通过技术写作与分享放大价值。', status: 'active' },
+  { id: 'goal-system', name: '搭建个人系统', description: '自我管理、时间与复盘的系统化闭环。', status: 'active' },
+  { id: 'goal-learning', name: '持续学习输入', description: '保持稳定的学习与输入闭环。', status: 'active' },
+];
+
+const PRESET_PROJECTS_RAW: Omit<IProject, 'createdAt' | 'updatedAt'>[] = [
+  { id: 'proj-portfolio', goalId: 'goal-portfolio', name: '作品集网站', description: 'React + Vite 构建个人作品集站点。', capabilityIds: ['cap-creation-tech-frontend'], progress: 0, status: 'active' },
+  { id: 'proj-python', goalId: 'goal-python', name: 'Python 数据分析项目', description: '用 Python 完成一个端到端数据分析项目。', capabilityIds: ['cap-system-data-analysis'], progress: 0, status: 'active' },
+  { id: 'proj-ai', goalId: 'goal-ai', name: 'AI 实战项目', description: '基于 LLM 构建一个可用的小工具或工作流。', capabilityIds: ['cap-creation-ai-basic'], progress: 0, status: 'active' },
+  { id: 'proj-body', goalId: 'goal-body', name: '居家渐进式健身', description: '背部强化 + 体态改善的居家训练计划。', capabilityIds: ['cap-meta-self-focus'], progress: 0, status: 'active' },
+  { id: 'proj-expression', goalId: 'goal-expression', name: '技术写作与分享', description: '把经验沉淀为可分享的技术文章。', capabilityIds: ['cap-influence-expression-writing'], progress: 0, status: 'active' },
+  { id: 'proj-system', goalId: 'goal-system', name: '个人系统搭建', description: '目标 / 时间 / 复盘的系统化闭环。', capabilityIds: ['cap-system-opt-loop'], progress: 0, status: 'active' },
+  { id: 'proj-learning', goalId: 'goal-learning', name: '每周学习闭环', description: '稳定输入 + 深度理解 + 输出表达。', capabilityIds: ['cap-meta-learning-deep'], progress: 0, status: 'active' },
+];
+
+const presetNow = Date.now();
+export const PRESET_GOALS: IGoal[] = PRESET_GOALS_RAW.map((g) => ({ ...g, createdAt: presetNow, updatedAt: presetNow }));
+export const PRESET_PROJECTS: IProject[] = PRESET_PROJECTS_RAW.map((p) => ({ ...p, createdAt: presetNow, updatedAt: presetNow }));
 
 // ========== 预设能力树 ==========
 type CapabilitySeedNode = {
@@ -698,6 +723,7 @@ export const DEFAULT_SETTINGS: IAppSettings = {
   floatingPosition: { x: 0, y: 0 },
   floatingOpacity: 1,
   floatingCollapseDelay: 3000,
+  epicClearCoefficient: 1.0,
 };
 
 export const DEFAULT_MANA_CONFIG: IManaConfig = {

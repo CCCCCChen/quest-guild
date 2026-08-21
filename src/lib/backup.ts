@@ -18,6 +18,10 @@ const DATA_KEYS = [
   '__quest_guild_active_track',
   '__quest_guild_focus_log',
   '__quest_guild_settings',
+  // P0-1：补齐目标 / 项目 / 复盘（goals/projects 现已镜像进本地 store，reflections 本就在此）
+  '__quest_guild_goals',
+  '__quest_guild_projects',
+  '__quest_guild_reflections',
 ];
 
 export interface IDataSnapshot {
@@ -368,6 +372,23 @@ export function validateData(data?: IDataSnapshot): ValidationResult {
     if (settings === null || typeof settings !== 'object') {
       errors.push('设置数据格式损坏');
     }
+  }
+
+  // P0-1：目标 / 项目 / 复盘 完整性校验
+  const goalsRaw = snapshot['__quest_guild_goals'];
+  if (goalsRaw !== undefined) {
+    const goals = safeParse(goalsRaw, null as unknown[] | null);
+    if (goals === null || !Array.isArray(goals)) errors.push('目标数据格式损坏');
+  }
+  const projectsRaw = snapshot['__quest_guild_projects'];
+  if (projectsRaw !== undefined) {
+    const projects = safeParse(projectsRaw, null as unknown[] | null);
+    if (projects === null || !Array.isArray(projects)) errors.push('项目数据格式损坏');
+  }
+  const reflectionsRaw = snapshot['__quest_guild_reflections'];
+  if (reflectionsRaw !== undefined) {
+    const reflections = safeParse(reflectionsRaw, null as unknown[] | null);
+    if (reflections === null || !Array.isArray(reflections)) errors.push('复盘数据格式损坏');
   }
 
   return {

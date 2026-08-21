@@ -3,6 +3,7 @@ import type { IProject } from '@/types/quest';
 import { store, subscribeStorageChange } from '@/lib/storage';
 import { projectsApi } from '@/api';
 import { cascadeDeleteTasksByProject } from '@/hooks/useTasks';
+import { PRESET_PROJECTS } from '@/data/preset';
 
 const PROJECTS_KEY = '__quest_guild_projects';
 
@@ -13,6 +14,11 @@ let initialized = false;
 function loadProjects(): IProject[] {
   try {
     const raw = store.getItem(PROJECTS_KEY);
+    if (raw === null) {
+      // 首次无数据：注入骨架预设并落盘，避免空白页 / 用户新增后骨架丢失
+      store.setItem(PROJECTS_KEY, JSON.stringify(PRESET_PROJECTS));
+      return PRESET_PROJECTS;
+    }
     if (raw) return JSON.parse(raw) as IProject[];
   } catch { /* ignore */ }
   return [];

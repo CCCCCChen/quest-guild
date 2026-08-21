@@ -45,11 +45,12 @@ app.use(express.json());
 // Electron 主进程在打包模式下通过 QUEST_GUILD_USER_DATA 注入 app.getPath('userData')；
 // 开发模式不注入该变量，db 仍留在 __dirname（quest-guide/server），行为与历史一致。
 const DB_DIR = process.env.QUEST_GUILD_USER_DATA
-  ? path.join(process.env.QUEST_GUILD_USER_DATA, 'quest-guild')
+  ? path.join(process.env.QUEST_GUILD_USER_DATA, 'db')
   : __dirname;
 if (!fs.existsSync(DB_DIR)) {
   fs.mkdirSync(DB_DIR, { recursive: true });
 }
+// 注：DB_DIR 在打包模式下为 `<userData>/db`，故本文件最终位于 `<userData>/db/quest-guild.db`（P0-2 去三级同名嵌套）。
 const db = new Database(path.join(DB_DIR, 'quest-guild.db'));
 db.pragma('journal_mode = WAL');
 

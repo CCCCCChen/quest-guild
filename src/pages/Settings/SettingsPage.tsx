@@ -73,6 +73,10 @@ const STORAGE_KEYS = [
   '__quest_guild_active_track',
   '__quest_guild_focus_log',
   '__quest_guild_settings',
+  // P0-1：补齐目标 / 项目 / 复盘（与 backup.ts DATA_KEYS 保持一致）
+  '__quest_guild_goals',
+  '__quest_guild_projects',
+  '__quest_guild_reflections',
 ];
 
 export default function SettingsPage() {

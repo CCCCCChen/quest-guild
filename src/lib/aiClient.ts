@@ -4,20 +4,11 @@
 import type { TaskDifficulty } from '@/types/quest';
 import { loadAiConfig } from './aiConfig';
 import type { IAiSubtaskDraft } from './aiDraft';
+import decomposeRules from '@/data/decomposeRules.json';
 
-const SYSTEM_PROMPT = `你是「悬赏任务公会」的任务拆解官。把一个史诗任务拆成可执行的子任务，严格只输出 JSON：
-{
-  "subtasks": [
-    {"name":"子任务名","description":"一句话说明目标","difficulty":"easy|normal|hard|epic","estimatedMinutes":数字,"stage":数字}
-  ]
-}
-要求：
-- 3~8 个具体、可执行的子任务
-- stage 表示顺序/并行分组：相同 stage 可并行推进，stage 越大越靠后执行
-- difficulty 在 easy/normal/hard/epic 中合理分布
-- estimatedMinutes 为单个子任务预估分钟数（5~9999）
-- 全部中文输出
-不要输出 JSON 以外的任何内容。`;
+// 拆解规则统一引用共享源（src/data/decomposeRules.json），与服务端 server/services/llm.js 同源，
+// 避免「服务端规则 / 浏览器端规则 / B2 注入」三处分叉。
+const SYSTEM_PROMPT = decomposeRules.systemPrompt;
 
 const VALID_DIFFICULTIES: TaskDifficulty[] = ['easy', 'normal', 'hard', 'epic'];
 
@@ -46,8 +37,8 @@ export async function callDecomposeLLM(params: {
     `名称：${params.name}\n` +
     (params.description ? `描述：${params.description}\n` : '') +
     (params.difficulty ? `整体难度：${params.difficulty}\n` : '') +
-    (params.estimatedMinutes ? `预估总时长：${params.estimatedMinutes} 分钟\n` : '') +
-    `\n请输出子任务列表（含 stage 分组）。`;
+    (params.estimatedMinutes ? `预估总时长：${params.estimatedMinutes} 分钟（子任务按实际复杂度独立估算，单条 20-120 分钟）\n` : '') +
+    `\n请按阶段（stage）拆解，子任务以动词开头、可独立交付，输出纯 JSON。`;
 
   let resp: Response;
   try {
@@ -105,11 +96,13 @@ export async function callDecomposeLLM(params: {
       ? (s.difficulty as TaskDifficulty)
       : 'normal';
     const minutes = Number(s.estimatedMinutes);
+    // 钳制到共享约束：单任务至少 minMinutes（20）分钟，上限 9999
+    const minMinutes = decomposeRules.constraints?.minMinutes ?? 20;
     out.push({
       name: String(s.name).trim().slice(0, 50) || '未命名子任务',
       description: typeof s.description === 'string' ? s.description.slice(0, 200) : '',
       difficulty,
-      estimatedMinutes: Math.min(9999, Math.max(5, Number.isFinite(minutes) ? minutes : 30)),
+      estimatedMinutes: Math.min(9999, Math.max(minMinutes, Number.isFinite(minutes) ? minutes : 30)),
       stage: typeof s.stage === 'number' ? s.stage : 1,
     });
   }

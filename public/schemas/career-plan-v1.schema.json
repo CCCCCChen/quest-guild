@@ -1,0 +1,301 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "minLength": 1,
+      "description": "格式版本，如 \"1.0\""
+    },
+    "generator": {
+      "type": "string"
+    },
+    "generatedAt": {
+      "description": "ISO 时间",
+      "type": "string"
+    },
+    "meta": {
+      "type": "object",
+      "properties": {
+        "clientName": {
+          "type": "string"
+        },
+        "consultationDate": {
+          "type": "string"
+        },
+        "sourceExportVersion": {
+          "type": "string"
+        }
+      }
+    },
+    "capabilities": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": [
+            "merge",
+            "replace"
+          ],
+          "description": "merge=增量追加（推荐）；replace=整棵能力树替换（危险）"
+        },
+        "items": {
+          "minItems": 1,
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/__schema0"
+          }
+        }
+      },
+      "required": [
+        "action",
+        "items"
+      ]
+    },
+    "goals": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "externalId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": {
+            "default": "",
+            "type": "string"
+          },
+          "deadline": {
+            "description": "ISO 日期，如 2031-01-01",
+            "type": "string"
+          },
+          "weight": {
+            "description": "目标权重 1-100，供排序引擎",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "status": {
+            "default": "active",
+            "type": "string",
+            "enum": [
+              "active",
+              "archived"
+            ]
+          },
+          "milestones": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "deadline": {
+                  "description": "ISO 日期，如 2026-11-16",
+                  "type": "string"
+                },
+                "verification": {
+                  "description": "验收标准",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name"
+              ]
+            }
+          }
+        },
+        "required": [
+          "externalId",
+          "name"
+        ]
+      }
+    },
+    "projects": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "externalId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "goalExternalId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "milestoneIndex": {
+            "description": "可选，承接第 N 个里程碑",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": {
+            "default": "",
+            "type": "string"
+          },
+          "capabilityExternalIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "status": {
+            "default": "active",
+            "type": "string",
+            "enum": [
+              "active",
+              "completed",
+              "archived"
+            ]
+          }
+        },
+        "required": [
+          "externalId",
+          "goalExternalId",
+          "name"
+        ]
+      }
+    },
+    "epics": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "externalId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "projectExternalId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": {
+            "default": "",
+            "type": "string"
+          },
+          "difficulty": {
+            "type": "string",
+            "enum": [
+              "easy",
+              "normal",
+              "hard",
+              "epic"
+            ]
+          },
+          "estimatedMinutes": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "bossName": {
+            "description": "未填系统自动生成",
+            "type": "string"
+          },
+          "stages": {
+            "description": "二维数组：外层=阶段，内层=该阶段子任务名",
+            "type": "array",
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "required": [
+          "externalId",
+          "projectExternalId",
+          "name"
+        ]
+      }
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "capabilities",
+    "goals",
+    "projects",
+    "epics"
+  ],
+  "definitions": {
+    "__schema0": {
+      "type": "object",
+      "properties": {
+        "externalId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "category": {
+          "type": "string",
+          "minLength": 1
+        },
+        "parentId": {
+          "description": "null=一级；或 cap-*/本 items 内另一条 externalId",
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "description": {
+          "default": "",
+          "type": "string"
+        },
+        "level": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3,
+          "description": "1=一级域, 2=二级子域, 3=三级叶"
+        },
+        "requiredSkillPoints": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "x": {
+          "description": "画布坐标，可缺省（系统自动布局）",
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        },
+        "children": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/__schema0"
+          }
+        }
+      },
+      "required": [
+        "externalId",
+        "name",
+        "category",
+        "level",
+        "requiredSkillPoints"
+      ]
+    }
+  }
+}

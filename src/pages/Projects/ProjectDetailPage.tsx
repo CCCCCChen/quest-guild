@@ -33,6 +33,7 @@ import { useTasks } from '@/hooks/useTasks';
 import { useShop } from '@/hooks/useShop';
 import { useSettings } from '@/hooks/useSettings';
 import { cn } from '@/lib/utils';
+import { inheritContext } from '@/lib/contextInherit';
 import type { IQuestTask } from '@/types/quest';
 
 const taskFormSchema = z.object({
@@ -98,16 +99,20 @@ export default function ProjectDetailPage() {
 
   function submitProjectTask(values: TaskFormValues) {
     if (!project) return;
+    // 继承项目上下文（goalId / projectId / capabilityIds），保证任务归属链路不断
+    const ctx = inheritContext(project, {
+      projectId: project.id,
+      goalId: project.goalId,
+      capabilityIds: project.capabilityIds,
+    });
     addTask({
       name: values.name,
       description: '',
       type: 'daily',
       difficulty: 'normal',
       estimatedMinutes: values.estimatedMinutes,
-      goalId: project.goalId,
-      projectId: project.id,
-      capabilityIds: project.capabilityIds,
-      tags: [],
+      ...ctx,
+      tags: ctx.tags ?? [],
     });
     toast.success('项目任务已创建');
     setCreateOpen(false);

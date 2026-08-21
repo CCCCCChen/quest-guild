@@ -68,7 +68,7 @@ import {
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { useTasks } from '@/hooks/useTasks';
+import { useTasks, findTaskById } from '@/hooks/useTasks';
 import { useAiDrafts } from '@/hooks/useAiDrafts';
 import { tasksApi } from '@/api/tasks';
 import { useSkills } from '@/hooks/useSkills';
@@ -86,6 +86,7 @@ import {
   SheetFooter,
 } from '@/components/ui/sheet';
 import type { IQuestTask, TaskDifficulty, TaskImportance, TaskType } from '@/types/quest';
+import { inheritContext } from '@/lib/contextInherit';
 import type { IAiDraft, IAiSubtaskDraft } from '@/lib/aiDraft';
 import { cn } from '@/lib/utils';
 
@@ -283,6 +284,9 @@ export default function QuestPoolPage() {
       });
       toast.success('任务已更新');
     } else {
+      // 手动建子任务（设了 parentId）时，若未显式选择归属，继承父任务上下文，避免孤儿
+      const parent = values.parentId ? findTaskById(values.parentId) : undefined;
+      const parentCtx = parent ? inheritContext(parent) : {};
       addTask({
         name: values.name,
         description: values.description || '',
@@ -291,8 +295,8 @@ export default function QuestPoolPage() {
         importance: values.importance || 'medium',
         estimatedMinutes: values.estimatedMinutes,
         relatedSkillId: values.relatedSkillId || undefined,
-        goalId: values.goalId || undefined,
-        projectId: values.projectId || undefined,
+        goalId: values.goalId || parentCtx.goalId,
+        projectId: values.projectId || parentCtx.projectId,
         capabilityIds,
         bossName: values.type === 'epic' ? values.bossName || undefined : undefined,
         parentId: values.parentId || undefined,
@@ -1040,14 +1044,16 @@ function EpicTaskNode({
     if (!draft) return;
     const st = draft.subtasks.find((s) => s.id === subtaskId);
     if (!st) return;
+    // 继承父史诗的 goalId/projectId/capabilityIds/tags，避免拆出的子任务变成孤儿
+    const ctx = inheritContext(task, { stage: st.stage || 1 });
     addTask({
       name: st.name,
       description: st.description,
       type: 'epic',
       difficulty: st.difficulty,
       estimatedMinutes: st.estimatedMinutes,
-      stage: st.stage || 1,
       parentId: task.id,
+      ...ctx,
     });
     removeSubtask(draft.id, subtaskId);
     toast.success(`已加入「${st.name}」`);
@@ -1058,14 +1064,15 @@ function EpicTaskNode({
     if (!draft) return;
     const n = draft.subtasks.length;
     for (const st of draft.subtasks) {
+      const ctx = inheritContext(task, { stage: st.stage || 1 });
       addTask({
         name: st.name,
         description: st.description,
         type: 'epic',
         difficulty: st.difficulty,
         estimatedMinutes: st.estimatedMinutes,
-        stage: st.stage || 1,
         parentId: task.id,
+        ...ctx,
       });
     }
     removeDraft(draft.id);
@@ -1182,6 +1189,18 @@ function EpicTaskNode({
               <span>
                 子任务 {completedChildren}/{children.length}
               </span>
+            )}
+            {/* 过大预警：叶子任务且预估超过 120 分钟，提示拆解为更小的可执行子任务 */}
+            {task.status !== 'completed' && task.estimatedMinutes > 120 && children.length === 0 && (
+              <button
+                type="button"
+                onClick={handleDecompose}
+                title="任务过大，建议拆解为更小的可执行子任务"
+                className="inline-flex items-center gap-1 rounded-full bg-warning/15 px-2 py-0.5 text-[10px] font-medium text-warning transition-colors hover:bg-warning/25"
+              >
+                <AlertCircle className="h-3 w-3" />
+                过大·建议拆解
+              </button>
             )}
           </div>
 

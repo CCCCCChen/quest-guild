@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import type { IQuestTask, IActiveTrack, IFocusLog, TaskType, TaskDifficulty, TaskStatus, TaskImportance } from '@/types/quest';
+import type { IQuestTask, IActiveTrack, IFocusLog, TaskType, TaskDifficulty, TaskStatus, TaskImportance, IAppSettings } from '@/types/quest';
 import { PRESET_TASKS, PRESET_FOCUS_LOGS } from '@/data/preset';
 import { SAMPLE_TASKS } from '@/data/sampleTasks';
 import { playSound } from '@/lib/sound';
@@ -144,6 +144,26 @@ export function cascadeDeleteTasksByGoal(goalId: string): void {
   for (const t of tasksState.filter((t) => t.goalId === goalId)) {
     deleteTaskTree(t.id);
   }
+}
+
+// 模块级任务查找（供 UI 在创建子任务时做上下文继承，无需暴露整个 tasks 数组）
+export function findTaskById(id: string): IQuestTask | undefined {
+  return tasksState.find((t) => t.id === id);
+}
+
+// 读取史诗通关奖励系数（默认 1.0；UI 调参留待 Phase 1 后补）
+function readEpicClearCoeff(): number {
+  try {
+    const raw = store.getItem('__quest_guild_settings');
+    if (raw) {
+      const s = JSON.parse(raw) as IAppSettings;
+      const c = s?.epicClearCoefficient;
+      if (typeof c === 'number' && c > 0) return c;
+    }
+  } catch {
+    /* ignore */
+  }
+  return 1.0;
 }
 
 // 双向同步：把云端返回的 qg 任务合并回本地（按 updatedAt 做 last-write-wins）
@@ -706,11 +726,40 @@ export function useTasks() {
         const siblings = tasksState.filter((t) => t.parentId === task.parentId && t.id !== taskId);
         const allDone = siblings.every((t) => t.status === 'completed');
         if (allDone) {
+          const parent = tasksState.find((t) => t.id === task.parentId);
           tasksState = tasksState.map((t) =>
             t.id === task.parentId
               ? { ...t, status: 'completed', bossProgress: 100, completedAt: Date.now(), updatedAt: Date.now() }
               : t,
           );
+          // 史诗通关奖励：检测逻辑（siblings.every → 父 completed）已存在，此处只补奖励发放。
+          // 按父任务预置 rewardReputation / rewardSkillPoints × 系数（默认 1.0，可调），结算权威在 quest 端。
+          if (parent) {
+            const coeff = readEpicClearCoeff();
+            const bonusRep = Math.round((parent.rewardReputation || 0) * coeff);
+            const bonusSp = Math.round((parent.rewardSkillPoints || 0) * coeff);
+            if (bonusRep > 0) addReputationSync(bonusRep);
+            if (bonusSp > 0) addSkillPointsSync(bonusSp);
+            toast.success(
+              `🏆 史诗通关！「${parent.name}」奖励 ${bonusRep} 声望${bonusSp > 0 ? ` + ${bonusSp} 能力点` : ''}`,
+            );
+            try {
+              window.dispatchEvent(
+                new CustomEvent('quest:celebrate', {
+                  detail: {
+                    taskName: parent.name,
+                    difficulty: 'epic',
+                    reputation: bonusRep,
+                    skillPoints: bonusSp,
+                    skillId: parent.relatedSkillId,
+                    epicClear: true,
+                  },
+                }),
+              );
+            } catch {
+              /* 事件派发失败不影响主流程 */
+            }
+          }
         } else {
           const total = siblings.length + 1;
           const done = siblings.filter((t) => t.status === 'completed').length + 1;

@@ -12,6 +12,17 @@ log.transports.file.fileName = 'main.log';
 // 重写 console 方法，使 console.log/error 也写入日志文件
 Object.assign(console, log.functions);
 
+// P0-2：把 Electron userData 目录暴露为环境变量，供被托管/衍生的本地 server（server/index.js）
+// 在打包模式下定位可写目录（app.asar 内 __dirname 只读）。子进程会继承该 env。
+// 注：当前独立运行 server 时此变量为空，server 会回退到 __dirname；此处只为联调「主进程托管 server」铺路。
+if (process.env.QUEST_GUILD_USER_DATA === undefined) {
+  try {
+    process.env.QUEST_GUILD_USER_DATA = app.getPath('userData');
+  } catch (e) {
+    // 非 Electron 上下文（如单独 node server/index.js）忽略，server 自行回退
+  }
+}
+
 // 初始化本地存储
 const store = new Store({
   name: 'quest-guild-data',

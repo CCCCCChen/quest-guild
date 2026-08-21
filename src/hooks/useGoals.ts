@@ -3,6 +3,7 @@ import type { IGoal } from '@/types/quest';
 import { store, subscribeStorageChange } from '@/lib/storage';
 import { goalsApi } from '@/api';
 import { cascadeDeleteTasksByGoal } from '@/hooks/useTasks';
+import { PRESET_GOALS } from '@/data/preset';
 
 const GOALS_KEY = '__quest_guild_goals';
 
@@ -13,6 +14,12 @@ let initialized = false;
 function loadGoals(): IGoal[] {
   try {
     const raw = store.getItem(GOALS_KEY);
+    if (raw === null) {
+      // 首次无数据：注入骨架预设并落盘，避免空白页 / 用户新增后骨架丢失
+      // （服务端模式下次 syncFromServer 会用服务端数据覆盖，故仅浏览器模式新用户持久生效）
+      store.setItem(GOALS_KEY, JSON.stringify(PRESET_GOALS));
+      return PRESET_GOALS;
+    }
     if (raw) return JSON.parse(raw) as IGoal[];
   } catch { /* ignore */ }
   return [];
