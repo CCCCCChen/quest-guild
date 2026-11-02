@@ -119,6 +119,16 @@ export default function GoalsPage() {
     return !!ts && ts < now;
   }
 
+  // P2-C3：里程碑截止状态（逾期 / 临近 3 天 / 正常），用于高亮
+  type MilestoneStatus = 'overdue' | 'near' | 'normal';
+  function milestoneStatus(ts?: number): MilestoneStatus {
+    if (!ts) return 'normal';
+    const daysLeft = (ts - now) / 86400000;
+    if (daysLeft < 0) return 'overdue';
+    if (daysLeft <= 3) return 'near';
+    return 'normal';
+  }
+
   function resetForm(nextEditing: IGoal | null) {
     setEditing(nextEditing);
     form.reset({
@@ -284,8 +294,18 @@ export default function GoalsPage() {
                       </Badge>
                     ) : null}
                     {goal.milestone ? (
-                      <Badge variant="outline" className="border-primary/40 text-primary">
-                        🏁 {goal.milestone}
+                      <Badge
+                        variant="outline"
+                        className={
+                          milestoneStatus(goal.milestoneDeadline) === 'overdue'
+                            ? 'border-destructive/50 text-destructive'
+                            : milestoneStatus(goal.milestoneDeadline) === 'near'
+                              ? 'border-warning/50 text-warning'
+                              : 'border-primary/40 text-primary'
+                        }
+                      >
+                        {milestoneStatus(goal.milestoneDeadline) === 'overdue' ? '⚠ 已逾期 ' : '🏁 '}
+                        {goal.milestone}
                         {goal.milestoneDeadline ? `（${formatDate(goal.milestoneDeadline)}）` : ''}
                       </Badge>
                     ) : null}

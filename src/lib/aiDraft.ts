@@ -1,6 +1,6 @@
 // AI 拆解草稿存储层（独立键，永不同步到云端）
 // 草稿是「待确认」的中间态：AI 生成的子任务先存这里，用户编辑后「加入任务」才转正上云。
-import type { TaskDifficulty } from '@/types/quest';
+import type { TaskDifficulty, TaskImportance, LifeDomain, ContentType, ExecutionContext, IRecurrenceRule } from '@/types/quest';
 import { store } from '@/lib/storage';
 
 const AI_DRAFTS_KEY = '__quest_guild_ai_drafts';
@@ -12,6 +12,18 @@ export interface IAiSubtaskDraft {
   difficulty: TaskDifficulty;
   estimatedMinutes: number;
   stage: number;
+  // P0-E：7+1 多维字段（AI 拆解填充，用户可在 UI 编辑）
+  importance?: TaskImportance;
+  lifeDomain?: LifeDomain[];
+  contentType?: ContentType;
+  executionContext?: ExecutionContext[];
+  recurrence?: IRecurrenceRule;
+  capabilityIds?: string[];
+  howToHint?: string;
+  deadline?: number;
+  startDate?: number;
+  reminderAt?: number;
+  kind?: 'task' | 'decision';
 }
 
 export interface IAiDraft {

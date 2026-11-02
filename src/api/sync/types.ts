@@ -26,6 +26,15 @@ export interface QgTaskSnapshot {
   goalId?: string | null;
   projectId?: string | null;
   tags?: string[];
+  // P0-C：7+1 多维分类字段（云端暂未落库，仅透传，本地 round-trip 安全）
+  lifeDomain?: string[];
+  contentType?: string;
+  executionContext?: string[];
+  howToHint?: string;
+  startDate?: number | null;
+  deadline?: number | null;
+  recurrence?: unknown;
+  reminderAt?: number | null;
 }
 
 export interface QgMeta {

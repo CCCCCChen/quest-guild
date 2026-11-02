@@ -441,6 +441,12 @@ export default function ProjectsPage() {
                         name={field.name}
                       />
                     </FormControl>
+                    {/* P1-E：过大预警 */}
+                    {Number(field.value) > 120 && (
+                      <p className="text-[11px] text-warning mt-1">
+                        ⚠ 预估超过 120 分钟，建议拆分为多个子任务
+                      </p>
+                    )}
                     <FormMessage />
                   </FormItem>
                 )}

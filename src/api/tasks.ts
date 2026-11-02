@@ -40,6 +40,14 @@ export const tasksApi = {
     parentId?: string;
     stage?: number;
     tags?: string[];
+    lifeDomain?: import('@/types/quest').LifeDomain[];
+    contentType?: import('@/types/quest').ContentType;
+    executionContext?: import('@/types/quest').ExecutionContext[];
+    howToHint?: string;
+    startDate?: number;
+    deadline?: number;
+    recurrence?: import('@/types/quest').IRecurrenceRule;
+    reminderAt?: number;
   }): Promise<IQuestTask> =>
     ({ ...data, id: data.id ?? genLocalId('t') }) as IQuestTask,
 

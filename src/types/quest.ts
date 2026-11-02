@@ -8,6 +8,33 @@ export type SkillStatus = 'locked' | 'unlocked' | 'enhanced';
 export type GoalStatus = 'active' | 'archived';
 export type ProjectStatus = 'active' | 'completed' | 'archived';
 
+// ========== P0-C：7+1 多维分类体系 ==========
+/** 1.4 生活领域（原"来源"重命名，多选） */
+export type LifeDomain = 'work' | 'parttime' | 'growth' | 'health';
+/** 1.5 内容性质（供 estimationProfile 与时间账分布） */
+export type ContentType =
+  | 'coding'
+  | 'writing'
+  | 'research'
+  | 'communication'
+  | 'design'
+  | 'mechanical'
+  | 'learning'
+  | 'errand';
+/** 1.8 执行情境（服务 G2"现在能做什么"，多选） */
+export type ExecutionContext = 'commute' | 'snippet' | 'focus' | 'lowEnergy';
+
+/** 1.6 周期规则 */
+export interface IRecurrenceRule {
+  type: 'none' | 'daily' | 'weekly' | 'monthly' | 'custom';
+  /** 每 N 天/周/月（type!=none 时生效） */
+  interval?: number;
+  /** 0-6，weekly 用 */
+  weekdays?: number[];
+  /** 终止时间戳（可选） */
+  endDate?: number;
+}
+
 export interface IQuestTask {
   id: string;
   name: string;
@@ -35,6 +62,23 @@ export interface IQuestTask {
   completedAt?: number;
   source?: 'mock' | 'user';
   tags?: string[];
+  // ========== P0-C：7+1 多维分类字段 ==========
+  /** 1.4 生活领域（work/parttime/growth/health，多选） */
+  lifeDomain?: LifeDomain[];
+  /** 1.5 内容性质（供 estimationProfile 与时间账分布） */
+  contentType?: ContentType;
+  /** 1.8 执行情境（commute/snippet/focus/lowEnergy，多选） */
+  executionContext?: ExecutionContext[];
+  /** AI 给的"怎么做"提示（nextAction 落点） */
+  howToHint?: string;
+  /** 计划开始时间 */
+  startDate?: number;
+  /** 截止时间 */
+  deadline?: number;
+  /** 1.6 周期规则 */
+  recurrence?: IRecurrenceRule;
+  /** 提醒时间戳 */
+  reminderAt?: number;
 }
 
 export interface ISkillNode {
@@ -143,4 +187,16 @@ export interface IAppSettings {
   floatingCollapseDelay: number;
   /** 史诗父任务「通关奖励」系数：子任务全完成后，按父任务预置 rewardReputation × 此系数发放。默认 1.0，UI 调参留待 Phase 1 后补 */
   epicClearCoefficient?: number;
+  /**
+   * P0-F：AI 维护的预估校正乘数表。
+   * key = `${contentType}:${difficulty}`，value = 乘数（初值 1.0）。
+   * 完成即问反馈后滚动更新，用于校正同类任务的 estimatedMinutes。
+   */
+  estimationProfile?: Record<string, number>;
+  /**
+   * P2-A1：用户自定义的 lifeDomain 扩展标签（种子值见 decomposeRules.json）。
+   * AI 拆解时合并进 dimensionVocab.lifeDomain 随请求体发给云端（客户端权威），
+   * 改枚举无需重新部署服务端。
+   */
+  customLifeDomains?: string[];
 }

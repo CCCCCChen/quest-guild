@@ -54,9 +54,11 @@ import { useGoals } from '@/hooks/useGoals';
 import { useProjects } from '@/hooks/useProjects';
 import { useShop } from '@/hooks/useShop';
 import { useSettings } from '@/hooks/useSettings';
-import { formatDuration } from '@/lib/utils';
+import { TimeAccountPanel } from '@/components/TimeAccountPanel';
+import { computeTimeAccount, formatMinutes } from '@/lib/timeAccount';
+import { formatDuration, cn } from '@/lib/utils';
 import { computeGoalProgress } from '@/lib/progress';
-import type { IQuestTask, TaskDifficulty } from '@/types/quest';
+import type { IQuestTask, TaskDifficulty, ExecutionContext } from '@/types/quest';
 
 const DIFFICULTY_LABEL: Record<TaskDifficulty, string> = {
   easy: '简单',
@@ -70,6 +72,14 @@ const DIFFICULTY_COLOR: Record<TaskDifficulty, string> = {
   normal: 'bg-info/20 text-info border-info/40',
   hard: 'bg-warning/20 text-warning border-warning/40',
   epic: 'bg-accent/20 text-accent border-accent/40',
+};
+
+// P1-B：执行情境筛选标签
+const CONTEXT_LABELS: Record<ExecutionContext, string> = {
+  commute: '通勤',
+  snippet: '碎片',
+  focus: '专注',
+  lowEnergy: '低精力',
 };
 
 export default function TodayPage() {
@@ -100,6 +110,13 @@ export default function TodayPage() {
   const [quickType, setQuickType] = useState<'daily' | 'epic'>('daily');
   const [confirmCompleteTask, setConfirmCompleteTask] = useState<IQuestTask | null>(null);
 
+  // P1-B：执行情境筛选（多选 OR）
+  const [activeContexts, setActiveContexts] = useState<ExecutionContext[]>([]);
+  const toggleContext = (c: ExecutionContext) =>
+    setActiveContexts((prev) =>
+      prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]
+    );
+
   const isTrackingRunning = activeTrack?.isRunning ?? false;
 
   const pendingTasks = useMemo(
@@ -107,8 +124,19 @@ export default function TodayPage() {
     [tasks]
   );
 
+  // P1-B：按所选执行情境过滤（未标注情境的任务在筛选时隐藏）
+  const filteredPendingTasks = useMemo(() => {
+    if (activeContexts.length === 0) return pendingTasks;
+    return pendingTasks.filter((t) =>
+      (t.executionContext ?? []).some((c) => activeContexts.includes(c))
+    );
+  }, [pendingTasks, activeContexts]);
+
   const goalNameMap = useMemo(() => new Map(goals.map((g) => [g.id, g.name])), [goals]);
   const projectNameMap = useMemo(() => new Map(projects.map((p) => [p.id, p.name])), [projects]);
+
+  // P2-C1：DDL 倒排每日所需（基于时间账纯函数）
+  const ddlReverse = useMemo(() => computeTimeAccount(tasks).ddlReverse, [tasks]);
 
   // Phase 1.3：计算任务所属目标的「进度落后程度」权重，作为推荐排序因子
   // 落后度 = max(0, 期望进度 - 实际进度)，乘 100 化成百分点 scale。
@@ -128,17 +156,17 @@ export default function TodayPage() {
   );
 
   const highestValueTask = useMemo(() => {
-    return [...pendingTasks].sort((a, b) => {
+    return [...filteredPendingTasks].sort((a, b) => {
       const lagA = getGoalLagWeight(a);
       const lagB = getGoalLagWeight(b);
       const aScore = a.rewardReputation + a.rewardSkillPoints * 20 + lagA * 150;
       const bScore = b.rewardReputation + b.rewardSkillPoints * 20 + lagB * 150;
       return bScore - aScore;
     })[0];
-  }, [pendingTasks, getGoalLagWeight]);
+  }, [filteredPendingTasks, getGoalLagWeight]);
 
   const biggestGrowthTask = useMemo(() => {
-    return [...pendingTasks].sort((a, b) => {
+    return [...filteredPendingTasks].sort((a, b) => {
       const lagA = getGoalLagWeight(a);
       const lagB = getGoalLagWeight(b);
       const aScore =
@@ -155,7 +183,7 @@ export default function TodayPage() {
         lagB * 120;
       return bScore - aScore;
     })[0];
-  }, [pendingTasks, getGoalLagWeight]);
+  }, [filteredPendingTasks, getGoalLagWeight]);
 
   // Phase 1.3：法力水晶满槽软提示 + 一键移回最老注意力任务
   const oldestAttentionTask = useMemo(() => {
@@ -250,6 +278,7 @@ export default function TodayPage() {
             专注你的主线任务，击败 Boss 赢得荣耀
           </p>
         </div>
+        <TimeAccountPanel />
         <Dialog open={quickOpen} onOpenChange={setQuickOpen}>
           <DialogTrigger asChild>
             <Button className="gap-2 bg-gradient-to-r from-primary to-warning text-primary-foreground font-semibold shadow-lg shadow-primary/20 hover:shadow-primary/40">
@@ -334,6 +363,69 @@ export default function TodayPage() {
           </DialogContent>
         </Dialog>
       </div>
+
+      {/* P1-B：执行情境筛选（多选 OR） */}
+      <section className="w-full">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs text-muted-foreground mr-1">情境筛选：</span>
+          {(Object.keys(CONTEXT_LABELS) as ExecutionContext[]).map((c) => {
+            const on = activeContexts.includes(c);
+            return (
+              <button
+                key={c}
+                type="button"
+                onClick={() => toggleContext(c)}
+                className={cn(
+                  'text-xs px-2.5 py-1 rounded-full border transition-colors',
+                  on
+                    ? 'bg-primary/15 border-primary/50 text-primary'
+                    : 'border-border/60 text-muted-foreground hover:border-primary/40 hover:text-foreground'
+                )}
+              >
+                {CONTEXT_LABELS[c]}
+              </button>
+            );
+          })}
+          {activeContexts.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setActiveContexts([])}
+              className="text-xs px-2 py-1 text-muted-foreground hover:text-foreground underline underline-offset-2"
+            >
+              清除
+            </button>
+          )}
+        </div>
+        {activeContexts.length > 0 && (
+          <p className="text-[11px] text-muted-foreground mt-1.5">
+            仅显示标注了所选情境的任务；未标注情境的任务会被隐藏。
+          </p>
+        )}
+      </section>
+
+      {/* P2-C1：DDL 倒排每日所需提示（站内，无系统打扰） */}
+      {ddlReverse && (
+        <section>
+          <div
+            className={cn(
+              'flex items-start gap-2.5 rounded-md border px-4 py-3',
+              ddlReverse.daysLeft <= 1
+                ? 'border-destructive/50 bg-destructive/[0.09]'
+                : ddlReverse.daysLeft <= 3
+                  ? 'border-warning/50 bg-warning/[0.09]'
+                  : 'border-info/50 bg-info/[0.09]'
+            )}
+          >
+            <Clock className="h-4 w-4 mt-0.5 shrink-0" />
+            <div className="text-sm leading-relaxed">
+              <span className="font-semibold">📅 DDL 倒排：</span>
+              最早截止日 {new Date(ddlReverse.deadline).toLocaleDateString('zh-CN')} 还有{' '}
+              <span className="font-bold">{ddlReverse.daysLeft}</span> 天，建议每天至少投入{' '}
+              <span className="font-bold">{formatMinutes(ddlReverse.perDay)}</span>。
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* 法力水晶满槽软提示 */}
       {activeAttentionTasks.length >= settings.manaMax && oldestAttentionTask && (
@@ -527,9 +619,9 @@ export default function TodayPage() {
                   <p className="text-sm text-muted-foreground mb-4">
                     从下方悬赏池中选择一个任务设为今日主线
                   </p>
-                  {pendingTasks.length > 0 && (
+                  {filteredPendingTasks.length > 0 && (
                     <div className="flex flex-wrap justify-center gap-2">
-                      {pendingTasks.slice(0, 3).map((t) => (
+                      {filteredPendingTasks.slice(0, 3).map((t) => (
                         <Button
                           key={t.id}
                           variant="secondary"
@@ -607,17 +699,17 @@ export default function TodayPage() {
       </section>
 
       {/* 待激活悬赏池 */}
-      {pendingTasks.length > 0 && (
+      {filteredPendingTasks.length > 0 && (
         <section className="w-full">
           <div className="flex items-center gap-2 mb-3">
             <Swords className="h-5 w-5 text-muted-foreground" />
             <h2 className="text-lg font-bold text-foreground">待激活悬赏</h2>
             <span className="text-xs text-muted-foreground">
-              ({pendingTasks.length} 个待处理)
+              ({filteredPendingTasks.length} 个待处理)
             </span>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-            {pendingTasks.map((task) => (
+            {filteredPendingTasks.map((task) => (
               <Card
                 key={task.id}
                 className="border-border/50 bg-card/60 hover:bg-card transition-colors"

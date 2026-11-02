@@ -7,11 +7,17 @@
 // - patch 优先：调用方显式传入的字段覆盖继承值（尊重用户主动选择）。
 // - stage 不自动继承：子任务 stage 由 AI 拆分 / 用户单独指定，调用方通过 patch.stage 传入。
 
+import type { LifeDomain, ContentType, ExecutionContext } from '@/types/quest';
+
 export interface ITaskContextSource {
   goalId?: string;
   projectId?: string;
   capabilityIds?: string[];
   tags?: string[];
+  // P1-D：维度字段也可被继承（子任务未填时从父级继承，避免重复填写）
+  lifeDomain?: LifeDomain[];
+  contentType?: ContentType;
+  executionContext?: ExecutionContext[];
 }
 
 export interface ITaskContext {
@@ -20,6 +26,10 @@ export interface ITaskContext {
   capabilityIds?: string[];
   tags?: string[];
   stage?: number;
+  // P1-D
+  lifeDomain?: LifeDomain[];
+  contentType?: ContentType;
+  executionContext?: ExecutionContext[];
 }
 
 function pick<T>(v: T | undefined | null): T | undefined {
@@ -39,6 +49,9 @@ export function getTaskContext(source: ITaskContextSource | null | undefined): I
     projectId: pick(source.projectId),
     capabilityIds: pick(source.capabilityIds),
     tags: pick(source.tags),
+    lifeDomain: pick(source.lifeDomain),
+    contentType: pick(source.contentType),
+    executionContext: pick(source.executionContext),
   };
 }
 
@@ -57,5 +70,9 @@ export function inheritContext(
     capabilityIds: patch.capabilityIds !== undefined ? patch.capabilityIds : base.capabilityIds,
     tags: patch.tags !== undefined ? patch.tags : base.tags,
     stage: patch.stage,
+    // P1-D：子任务未显式填维度时，从父级继承
+    lifeDomain: patch.lifeDomain !== undefined ? patch.lifeDomain : base.lifeDomain,
+    contentType: patch.contentType !== undefined ? patch.contentType : base.contentType,
+    executionContext: patch.executionContext !== undefined ? patch.executionContext : base.executionContext,
   };
 }

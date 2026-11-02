@@ -59,6 +59,15 @@ function mapTask(t: IQuestTask): QgTaskSnapshot {
     goalId: t.goalId || null,
     projectId: t.projectId || null,
     tags: t.tags || [],
+    // P0-C：7+1 多维字段
+    lifeDomain: t.lifeDomain || [],
+    contentType: t.contentType || undefined,
+    executionContext: t.executionContext || [],
+    howToHint: t.howToHint || undefined,
+    startDate: t.startDate || undefined,
+    deadline: t.deadline || undefined,
+    recurrence: t.recurrence || undefined,
+    reminderAt: t.reminderAt || undefined,
   };
 }
 

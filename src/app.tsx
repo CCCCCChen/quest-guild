@@ -12,10 +12,15 @@ import ShopPage from "@/pages/Shop/ShopPage";
 import StatsPage from "@/pages/Stats/StatsPage";
 import SettingsPage from "@/pages/Settings/SettingsPage";
 import FloatingWidget from "@/components/FloatingWidget";
+import CompletionFeedbackModal from "@/components/CompletionFeedbackModal";
 import { useEffect } from "react";
+import { useReminderWatcher } from "@/hooks/useReminderWatcher";
 
 export default function App() {
   const isFloatingMode = new URLSearchParams(window.location.search).get('mode') === 'floating';
+
+  // P2-C2：本地提醒引擎（主窗口挂载，渲染进程轮询 + Notification API）
+  useReminderWatcher();
 
   useEffect(() => {
     if (isFloatingMode) {
@@ -39,20 +44,23 @@ export default function App() {
   }
 
   return (
-    <Routes>
-      <Route element={<Layout />}>
-        <Route index element={<TodayPage />} />
-        <Route path="goals" element={<GoalsPage />} />
-        <Route path="projects" element={<ProjectsPage />} />
-        <Route path="projects/:id" element={<ProjectDetailPage />} />
-        <Route path="reflections" element={<ReflectionsPage />} />
-        <Route path="quest-pool" element={<QuestPoolPage />} />
-        <Route path="skill-tree" element={<SkillTreePage />} />
-        <Route path="shop" element={<ShopPage />} />
-        <Route path="stats" element={<StatsPage />} />
-        <Route path="settings" element={<SettingsPage />} />
-      </Route>
-      <Route path="*" element={<NotFoundPage />} />
-    </Routes>
+    <>
+      <Routes>
+        <Route element={<Layout />}>
+          <Route index element={<TodayPage />} />
+          <Route path="goals" element={<GoalsPage />} />
+          <Route path="projects" element={<ProjectsPage />} />
+          <Route path="projects/:id" element={<ProjectDetailPage />} />
+          <Route path="reflections" element={<ReflectionsPage />} />
+          <Route path="quest-pool" element={<QuestPoolPage />} />
+          <Route path="skill-tree" element={<SkillTreePage />} />
+          <Route path="shop" element={<ShopPage />} />
+          <Route path="stats" element={<StatsPage />} />
+          <Route path="settings" element={<SettingsPage />} />
+        </Route>
+        <Route path="*" element={<NotFoundPage />} />
+      </Routes>
+      <CompletionFeedbackModal />
+    </>
   );
 }

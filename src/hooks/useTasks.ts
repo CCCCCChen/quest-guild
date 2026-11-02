@@ -105,6 +105,47 @@ function genId(prefix = 't'): string {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
 }
 
+// P2-C4：周期任务自动续生
+// 仅 daily / weekly 自动生成「下一代」任务（单代、不递归、不堆历史），继承原任务全部维度字段；
+// startDate / deadline / reminderAt 按周期向后平移，形成可延续的续生链。
+// monthly / custom / none 不自动续生（留手动）。在完成结算管线之后调用，幂等于「每次完成生成一条」。
+function generateRecurrenceNext(task: IQuestTask, now: number): IQuestTask | null {
+  const r = task.recurrence;
+  if (!r || r.type === 'none' || r.type === 'monthly' || r.type === 'custom') return null;
+  const intervalMs = r.type === 'daily' ? 86400000 : r.type === 'weekly' ? 7 * 86400000 : 0;
+  if (!intervalMs) return null;
+
+  const base = task.startDate ?? now;
+  const nextStart = base + intervalMs;
+  const nextDeadline = task.deadline ? task.deadline + intervalMs : undefined;
+  const nextReminder = task.reminderAt ? task.reminderAt + intervalMs : undefined;
+
+  const rewardReputation = computeReputation({ difficulty: task.difficulty, importance: task.importance, minutes: task.estimatedMinutes });
+  const rewardSkillPoints = computeSkillPoints(task.difficulty);
+
+  return {
+    ...task,
+    id: genId(task.type === 'epic' ? 'ep' : 'dy'),
+    status: 'pending',
+    isTracking: false,
+    isAttention: false,
+    actualMinutes: 0,
+    bossProgress: 0,
+    completedAt: undefined,
+    parentId: task.parentId,
+    stage: task.stage ?? 0,
+    startDate: nextStart,
+    deadline: nextDeadline,
+    reminderAt: nextReminder,
+    recurrence: { ...r },
+    rewardReputation,
+    rewardSkillPoints,
+    createdAt: now,
+    updatedAt: now,
+    source: 'user',
+  };
+}
+
 // 收集某任务的所有后代 id（含直接子与更深层子树）
 function collectDescendantIds(rootId: string): string[] {
   const direct = tasksState.filter((t) => t.parentId === rootId).map((t) => t.id);
@@ -207,6 +248,15 @@ export function mergeRemoteTasks(remoteTasks: QgTaskSnapshot[], deletedIds: stri
         goalId: remote.goalId ?? local.goalId,
         projectId: remote.projectId ?? local.projectId,
         tags: remote.tags ?? local.tags,
+        // P0-C：7+1 多维字段（云端暂未落库时为 undefined，回退本地值，round-trip 安全）
+        lifeDomain: (remote.lifeDomain as IQuestTask['lifeDomain']) ?? local.lifeDomain,
+        contentType: (remote.contentType as IQuestTask['contentType']) ?? local.contentType,
+        executionContext: (remote.executionContext as IQuestTask['executionContext']) ?? local.executionContext,
+        howToHint: remote.howToHint ?? local.howToHint,
+        startDate: remote.startDate ?? local.startDate,
+        deadline: remote.deadline ?? local.deadline,
+        recurrence: (remote.recurrence as IQuestTask['recurrence']) ?? local.recurrence,
+        reminderAt: remote.reminderAt ?? local.reminderAt,
         // 云端撤销完成（status 回 pending）时清掉本地 completedAt，避免 streak/今日声望误算
         completedAt: remote.status === 'completed'
           ? (remote.completedDate ? Date.parse(remote.completedDate) : local.completedAt)
@@ -252,6 +302,15 @@ export function mergeRemoteTasks(remoteTasks: QgTaskSnapshot[], deletedIds: stri
       completedAt: remote.completedDate ? Date.parse(remote.completedDate) : undefined,
       source: 'user',
       tags: remote.tags ?? [],
+      // P0-C：云端独有任务补齐 7+1 多维字段默认值
+      lifeDomain: Array.isArray(remote.lifeDomain) ? remote.lifeDomain as IQuestTask['lifeDomain'] : [],
+      contentType: (remote.contentType as IQuestTask['contentType']) || undefined,
+      executionContext: Array.isArray(remote.executionContext) ? remote.executionContext as IQuestTask['executionContext'] : [],
+      howToHint: remote.howToHint || undefined,
+      startDate: remote.startDate || undefined,
+      deadline: remote.deadline || undefined,
+      recurrence: (remote.recurrence as IQuestTask['recurrence']) || undefined,
+      reminderAt: remote.reminderAt || undefined,
     };
     merged.push(imported);
     // 云端新建且已完成的任务（创建到完成都在 workspace 发生）同样需要结算
@@ -451,6 +510,15 @@ export function useTasks() {
       parentId?: string;
       stage?: number;
       tags?: string[];
+      // P0-C：7+1 多维字段
+      lifeDomain?: import('@/types/quest').LifeDomain[];
+      contentType?: import('@/types/quest').ContentType;
+      executionContext?: import('@/types/quest').ExecutionContext[];
+      howToHint?: string;
+      startDate?: number;
+      deadline?: number;
+      recurrence?: import('@/types/quest').IRecurrenceRule;
+      reminderAt?: number;
     }) => {
       const rewardReputation = computeReputation({ difficulty: data.difficulty, importance: data.importance, minutes: data.estimatedMinutes });
       const rewardSkillPoints = computeSkillPoints(data.difficulty);
@@ -496,6 +564,15 @@ export function useTasks() {
         updatedAt: Date.now(),
         source: 'user',
         tags: data.tags || [],
+        // P0-C：7+1 多维字段
+        lifeDomain: data.lifeDomain || [],
+        contentType: data.contentType,
+        executionContext: data.executionContext || [],
+        howToHint: data.howToHint,
+        startDate: data.startDate,
+        deadline: data.deadline,
+        recurrence: data.recurrence,
+        reminderAt: data.reminderAt,
       };
 
       // 乐观更新
@@ -718,6 +795,20 @@ export function useTasks() {
             },
           }),
         );
+        // P0-F：派发完成即问反馈事件（CompletionFeedbackModal 监听），
+        // 仅在任务带 contentType 时弹窗，用于动态校正预估耗时。
+        if (task.contentType) {
+          window.dispatchEvent(
+            new CustomEvent('quest:ask-feedback', {
+              detail: {
+                taskId: task.id,
+                taskName: task.name,
+                difficulty: task.difficulty,
+                contentType: task.contentType,
+              },
+            }),
+          );
+        }
       } catch {
         /* 事件派发失败不影响完成主流程 */
       }
@@ -768,6 +859,14 @@ export function useTasks() {
             /* ignore */
           }
         }
+      }
+
+      // P2-C4：周期任务自动续生（daily/weekly 单代续生，继承维度；其余留手动）
+      const renewal = generateRecurrenceNext(task, now);
+      if (renewal) {
+        tasksState = [...tasksState, renewal];
+        syncState.markTaskDirty(renewal.id);
+        toast.success(`🔁 已续生下一周期任务「${renewal.name}」`);
       }
 
       saveTasksCache(tasksState);

@@ -204,6 +204,19 @@ try {
   db.prepare('ALTER TABLE skills ADD COLUMN lastImprovedAt INTEGER').run();
 } catch (e) { /* ignore */ }
 
+// ========== P0-C：任务 7+1 多维字段迁移 ==========
+const taskAlter = (sql) => {
+  try { db.prepare(sql).run(); } catch (e) { /* 已存在则忽略 */ }
+};
+taskAlter("ALTER TABLE tasks ADD COLUMN lifeDomain TEXT DEFAULT '[]'");
+taskAlter("ALTER TABLE tasks ADD COLUMN contentType TEXT");
+taskAlter("ALTER TABLE tasks ADD COLUMN executionContext TEXT DEFAULT '[]'");
+taskAlter("ALTER TABLE tasks ADD COLUMN howToHint TEXT DEFAULT ''");
+taskAlter('ALTER TABLE tasks ADD COLUMN startDate INTEGER');
+taskAlter('ALTER TABLE tasks ADD COLUMN deadline INTEGER');
+taskAlter("ALTER TABLE tasks ADD COLUMN recurrence TEXT DEFAULT 'null'");
+taskAlter('ALTER TABLE tasks ADD COLUMN reminderAt INTEGER');
+
 // 初始化默认数据
 const initMeta = db.prepare('INSERT OR IGNORE INTO meta (key, value) VALUES (?, ?)');
 initMeta.run('skill_points', '3');
@@ -231,6 +244,9 @@ function rowToTask(row) {
     isAttention: !!row.isAttention,
     tags: row.tags ? JSON.parse(row.tags) : [],
     capabilityIds: row.capabilityIds ? JSON.parse(row.capabilityIds) : [],
+    lifeDomain: row.lifeDomain ? JSON.parse(row.lifeDomain) : [],
+    executionContext: row.executionContext ? JSON.parse(row.executionContext) : [],
+    recurrence: row.recurrence ? JSON.parse(row.recurrence) : null,
   };
 }
 
@@ -243,6 +259,14 @@ function taskToRow(task) {
     goalId: task.goalId || null,
     projectId: task.projectId || null,
     capabilityIds: JSON.stringify(task.capabilityIds || []),
+    lifeDomain: JSON.stringify(task.lifeDomain || []),
+    executionContext: JSON.stringify(task.executionContext || []),
+    recurrence: JSON.stringify(task.recurrence || null),
+    contentType: task.contentType || null,
+    howToHint: task.howToHint || '',
+    startDate: task.startDate || null,
+    deadline: task.deadline || null,
+    reminderAt: task.reminderAt || null,
   };
 }
 
@@ -289,6 +313,15 @@ app.post('/api/tasks', (req, res) => {
     createdAt: Date.now(),
     source: 'user',
     tags: data.tags || [],
+    // P0-C：7+1 多维字段
+    lifeDomain: Array.isArray(data.lifeDomain) ? data.lifeDomain : [],
+    contentType: data.contentType || null,
+    executionContext: Array.isArray(data.executionContext) ? data.executionContext : [],
+    howToHint: data.howToHint || '',
+    startDate: data.startDate || null,
+    deadline: data.deadline || null,
+    recurrence: data.recurrence || null,
+    reminderAt: data.reminderAt || null,
   };
 
   const row = taskToRow(newTask);

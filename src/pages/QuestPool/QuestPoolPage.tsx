@@ -1054,6 +1054,17 @@ function EpicTaskNode({
       estimatedMinutes: st.estimatedMinutes,
       parentId: task.id,
       ...ctx,
+      importance: st.importance,
+      // P1-D：AI 未填维度时，从父史诗继承，避免重复填写
+      lifeDomain: st.lifeDomain ?? ctx.lifeDomain,
+      contentType: st.contentType ?? ctx.contentType,
+      executionContext: st.executionContext ?? ctx.executionContext,
+      recurrence: st.recurrence,
+      howToHint: st.howToHint,
+      deadline: st.deadline,
+      startDate: st.startDate,
+      reminderAt: st.reminderAt,
+      capabilityIds: st.capabilityIds && st.capabilityIds.length ? st.capabilityIds : ctx.capabilityIds,
     });
     removeSubtask(draft.id, subtaskId);
     toast.success(`已加入「${st.name}」`);
@@ -1073,6 +1084,17 @@ function EpicTaskNode({
         estimatedMinutes: st.estimatedMinutes,
         parentId: task.id,
         ...ctx,
+        importance: st.importance,
+        // P1-D：AI 未填维度时，从父史诗继承，避免重复填写
+        lifeDomain: st.lifeDomain ?? ctx.lifeDomain,
+        contentType: st.contentType ?? ctx.contentType,
+        executionContext: st.executionContext ?? ctx.executionContext,
+        recurrence: st.recurrence,
+        howToHint: st.howToHint,
+        deadline: st.deadline,
+        startDate: st.startDate,
+        reminderAt: st.reminderAt,
+        capabilityIds: st.capabilityIds && st.capabilityIds.length ? st.capabilityIds : ctx.capabilityIds,
       });
     }
     removeDraft(draft.id);
@@ -1494,6 +1516,15 @@ function AiDraftPanel({
                 />
                 <span className="text-[10px] text-muted-foreground shrink-0">分钟</span>
               </div>
+              {st.estimatedMinutes > 120 && (
+                <Badge
+                  variant="outline"
+                  className="text-[10px] border-warning/50 text-warning shrink-0"
+                  title="预估超过 120 分钟，建议拆分为多个更小的子任务"
+                >
+                  建议拆分
+                </Badge>
+              )}
               <Button
                 size="sm"
                 className="h-7 gap-1 text-[11px] shrink-0"
